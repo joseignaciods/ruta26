@@ -136,7 +136,8 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
       place.address && `dirección: ${place.address}`,
       place.latitude != null && `latitud: ${place.latitude}`,
       place.longitude != null && `longitud: ${place.longitude}`,
-      place.category && `categoría: ${place.category}`
+      place.category && `categoría: ${place.category}`,
+      place.priceLevel && `nivel de precio: ${place.priceLevel}`
     ].filter(Boolean).join(', ')
     send(`Confirmo que elijo "${place.name}" para reemplazar el panorama mencionado en mi solicitud anterior. Aplica ahora el cambio usando estos datos de Tripadvisor: ${factualDetails}.`)
   }
@@ -181,7 +182,10 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
                             <small>{place.category || 'Lugar recomendado'}</small>
                             <h4>{place.name}</h4>
                           </div>
-                          {place.rating != null && <b>★ {place.rating}</b>}
+                          <div className="chat-place-badges">
+                            {place.rating != null && <b>★ {place.rating}</b>}
+                            {place.priceLevel && <span title="Rango de precio informado por Tripadvisor">{place.priceLevel}</span>}
+                          </div>
                         </div>
                         {(place.ranking || place.reviewCount) && (
                           <p className="chat-place-meta">
