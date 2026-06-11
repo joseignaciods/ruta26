@@ -35,7 +35,7 @@ create table public.trip_invitations (
   trip_id uuid not null references public.trips(id) on delete cascade,
   email text not null,
   role text not null default 'editor' check (role in ('editor')),
-  token_hash text not null default encode(gen_random_bytes(32),'hex'),
+  token_hash text not null default md5(gen_random_uuid()::text),
   status text not null default 'pending',
   invited_by uuid not null references auth.users(id),
   expires_at timestamptz not null default now() + interval '7 days',
