@@ -721,6 +721,13 @@ export function TripProvider({ children }) {
         return data
       }),
 
+      clearChat: () => run(async () => {
+        if (!activeTrip) return
+        if (!hasSupabase) { localStore.clearChat(activeTrip.id); return }
+        const { error } = await supabase.from('assistant_messages').delete().eq('trip_id', activeTrip.id)
+        if (error) throw error
+      }),
+
       askAssistant: (prompt, history = []) => run(async () => {
         if (!activeTrip) return null
         if (!hasSupabase) {

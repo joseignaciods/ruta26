@@ -507,6 +507,12 @@ export const localStore = {
     write(CHAT_KEY, all)
   },
 
+  clearChat(tripId) {
+    const all = read(CHAT_KEY, {})
+    delete all[tripId]
+    write(CHAT_KEY, all)
+  },
+
   assistantReply(tripId, _prompt) {
     const trip = read(TRIPS_KEY, []).find(item => item.id === tripId)
     if (!trip) return 'No encuentro el viaje.'

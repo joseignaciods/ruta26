@@ -41,13 +41,14 @@ function Markdown({ children }) {
 }
 
 export default function AssistantChat({ open: controlledOpen, onOpenChange, initialPrompt, onPromptConsumed }) {
-  const { activeTrip, askAssistant, loadChat, deleteDay, deleteActivity, deleteExpense, deleteHotel, deletePackingItem } = useTrips()
+  const { activeTrip, askAssistant, loadChat, clearChat, deleteDay, deleteActivity, deleteExpense, deleteHotel, deletePackingItem } = useTrips()
   const [internalOpen, setInternalOpen] = useState(false)
   const [messages, setMessages] = useState([])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const endRef = useRef(null)
   const messagesRef = useRef([])
+  const sentPromptRef = useRef(null)
   const tripId = activeTrip?.id
   const open = controlledOpen ?? internalOpen
   const setOpen = onOpenChange || setInternalOpen
@@ -61,14 +62,24 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
   }, [open, tripId])
 
   useEffect(() => {
-    if (!open || !initialPrompt) return
+    // Al consumirse el prompt el padre lo vacía; reseteamos para permitir re-disparar la misma acción.
+    if (!initialPrompt) { sentPromptRef.current = null; return }
+    if (!open || sentPromptRef.current === initialPrompt) return
+    sentPromptRef.current = initialPrompt
     const prompt = initialPrompt
-    onPromptConsumed?.()
-    // Pequeño margen para que el historial alcance a cargar antes de enviar.
-    const timer = setTimeout(() => send(prompt, messagesRef.current), 400)
+    // Margen para que el historial alcance a cargar; recién al enviar avisamos al padre,
+    // así el cambio de initialPrompt no cancela este envío programado.
+    const timer = setTimeout(() => { send(prompt, messagesRef.current); onPromptConsumed?.() }, 400)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialPrompt])
+
+  const handleClear = async () => {
+    if (busy) return
+    await clearChat()
+    sentPromptRef.current = null
+    setMessages([])
+  }
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior:'smooth' }) }, [messages, busy])
 
@@ -111,7 +122,10 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
         <div className="assistant-panel">
           <header className="assistant-header">
             <div><span>ASISTENTE RUTA26</span><h3>{activeTrip.name}</h3></div>
-            <button className="ghost-btn" onClick={() => setOpen(false)}>Cerrar</button>
+            <div className="assistant-header-actions">
+              {messages.length > 0 && <button className="ghost-btn subtle" onClick={handleClear} disabled={busy}>Limpiar</button>}
+              <button className="ghost-btn" onClick={() => setOpen(false)}>Cerrar</button>
+            </div>
           </header>
           <div className="chat-messages">
             {messages.length === 0 && !busy && (
