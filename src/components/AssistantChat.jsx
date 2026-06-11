@@ -122,10 +122,23 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
         content:reply.text,
         externalContent:reply.externalContent,
         sources:reply.sources || [],
-        suggestedReplies:reply.suggestedReplies || []
-        ,actions:reply.actions || []
+        placeSuggestions:reply.placeSuggestions || [],
+        suggestedReplies:reply.suggestedReplies || [],
+        actions:reply.actions || []
       }])
     }
+  }
+
+  const choosePlace = place => {
+    const factualDetails = [
+      `location_id: ${place.locationId}`,
+      `nombre: ${place.name}`,
+      place.address && `dirección: ${place.address}`,
+      place.latitude != null && `latitud: ${place.latitude}`,
+      place.longitude != null && `longitud: ${place.longitude}`,
+      place.category && `categoría: ${place.category}`
+    ].filter(Boolean).join(', ')
+    send(`Confirmo que elijo "${place.name}" para reemplazar el panorama mencionado en mi solicitud anterior. Aplica ahora el cambio usando estos datos de Tripadvisor: ${factualDetails}.`)
   }
 
   const last = messages[messages.length - 1]
@@ -157,9 +170,34 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
               </div>
             )}
             {messages.map((message, index) => (
-              <div key={index} className={`chat-bubble ${message.role}`}>
+              <div key={index} className={`chat-bubble ${message.role} ${message.placeSuggestions?.length ? 'with-places' : ''}`}>
                 <Markdown>{message.content}</Markdown>
-                {message.sources?.length > 0 && (
+                {message.placeSuggestions?.length > 0 && (
+                  <div className="chat-place-list">
+                    {message.placeSuggestions.slice(0, 5).map(place => (
+                      <article className="chat-place-card" key={place.locationId || place.tripadvisorUrl || place.name}>
+                        <div className="chat-place-heading">
+                          <div>
+                            <small>{place.category || 'Lugar recomendado'}</small>
+                            <h4>{place.name}</h4>
+                          </div>
+                          {place.rating != null && <b>★ {place.rating}</b>}
+                        </div>
+                        {(place.ranking || place.reviewCount) && (
+                          <p className="chat-place-meta">
+                            {[place.ranking, place.reviewCount ? `${place.reviewCount} opiniones` : ''].filter(Boolean).join(' · ')}
+                          </p>
+                        )}
+                        {place.address && <p className="chat-place-address">{place.address}</p>}
+                        <div className="chat-place-actions">
+                          {place.tripadvisorUrl && <a href={place.tripadvisorUrl} target="_blank" rel="noreferrer">Ver detalles ↗</a>}
+                          <button type="button" onClick={() => choosePlace(place)} disabled={busy}>Elegir</button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+                {!message.placeSuggestions?.length && message.sources?.length > 0 && (
                   <div className="chat-sources">
                     <b>Fuentes en Tripadvisor</b>
                     {message.sources.slice(0, 5).map((source, sourceIndex) => (

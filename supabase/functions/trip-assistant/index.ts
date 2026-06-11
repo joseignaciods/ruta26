@@ -468,6 +468,8 @@ Deno.serve(async request => {
       ? 'Puedes buscar lugares actuales en Tripadvisor. Úsalo cuando el usuario pida recomendaciones, restaurantes, hoteles o panoramas reales.'
       : 'Tripadvisor no está configurado. No inventes ratings, precios, horarios ni datos actuales de lugares.',
     'Cuando uses Tripadvisor, menciona la fuente, incluye el enlace cuando exista y aclara que los datos se consultaron en vivo. No copies reseñas textuales; resume rating y cantidad de opiniones.',
+    'Los resultados de search_places y search_nearby_places se mostrarán automáticamente como tarjetas seleccionables. Preséntalos brevemente por nombre y pide elegir uno; no listes URLs genéricas.',
+    'search_places y search_nearby_places ya devuelven detalles suficientes. No llames get_place_details para cada resultado salvo que falte un dato imprescindible solicitado por el usuario.',
     'Al guardar lugares encontrados en Tripadvisor incluye solo nombre, dirección, coordenadas, categoría y tripadvisor_location_id; nunca copies su descripción ni reseñas en los campos description o tip.',
     'Cuando el usuario pida armar una ruta o agregar cosas, usa las herramientas y confirma brevemente qué hiciste.',
     'Para agregar actividades necesitas el day_id exacto del contexto; si el día no existe, créalo primero con add_day.',
@@ -485,6 +487,8 @@ Deno.serve(async request => {
   let changed = false
   let externalContent = Boolean(externalContentInHistory)
   const sources = new Set<string>()
+  // deno-lint-ignore no-explicit-any
+  const placeSuggestions = new Map<string, any>()
   const actions: { tool:string, label:string, id:string, parentId?:string }[] = []
 
   for (let round = 0; round < 6; round++) {
@@ -494,7 +498,7 @@ Deno.serve(async request => {
     const calls = response.output.filter((item: any) => item.type === 'function_call')
     if (!calls.length) {
       const { text, suggestedReplies } = splitReplies(response.output_text)
-      return json({ text, suggestedReplies, changed, externalContent, sources:[...sources], actions })
+      return json({ text, suggestedReplies, changed, externalContent, sources:[...sources], placeSuggestions:[...placeSuggestions.values()].slice(0, 5), actions })
     }
 
     input = input.concat(response.output)
@@ -531,21 +535,31 @@ Deno.serve(async request => {
       if ('places' in result && Array.isArray(result.places)) {
         for (const place of result.places) {
           if (place.tripadvisorUrl) sources.add(place.tripadvisorUrl)
+          const key = String(place.locationId || place.tripadvisorUrl || place.name || '')
+          if (key && !placeSuggestions.has(key)) placeSuggestions.set(key, place)
         }
       }
       if ('place' in result && result.place?.tripadvisorUrl) {
         sources.add(result.place.tripadvisorUrl)
+        const key = String(result.place.locationId || result.place.tripadvisorUrl || result.place.name || '')
+        if (key && !placeSuggestions.has(key)) placeSuggestions.set(key, result.place)
       }
       input.push({ type: 'function_call_output', call_id: call.call_id, output: JSON.stringify(result) })
     }
   }
 
+  const collectedPlaces = [...placeSuggestions.values()].slice(0, 5)
   return json({
-    text:'Hice varios cambios en el viaje. Revisa la ruta y dime si quieres ajustar algo.',
+    text:changed
+      ? 'Apliqué los cambios al viaje. Revisa la ruta y dime si quieres ajustar algo.'
+      : collectedPlaces.length
+        ? 'Encontré estas alternativas en Tripadvisor. Revisa los detalles y elige una para aplicar el cambio.'
+        : 'No alcancé a completar la solicitud. Intenta nuevamente con una instrucción más específica.',
     suggestedReplies:[],
     changed,
     externalContent,
     sources:[...sources],
+    placeSuggestions:collectedPlaces,
     actions
   })
   } catch (error) {
