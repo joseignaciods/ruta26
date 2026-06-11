@@ -21,6 +21,8 @@ Con `VITE_LOCAL_DEV_MODE=true` la app usa `localStorage`. Una cuenta nueva comie
 supabase/migrations/202606080001_initial_schema.sql
 supabase/migrations/202606100001_assistant_and_profiles.sql
 supabase/migrations/202606110001_activity_metadata.sql
+supabase/migrations/202606120001_activity_done.sql
+supabase/migrations/202606120002_invitation_share_token.sql
 ```
 3. Completar:
 
@@ -36,6 +38,7 @@ VITE_NOMINATIM_EMAIL=contacto@tu-dominio.com
 supabase secrets set OPENAI_API_KEY=... TRIPADVISOR_API_KEY=...
 supabase functions deploy trip-assistant
 supabase functions deploy invite-member
+supabase functions deploy accept-invite
 supabase functions deploy travel-search
 ```
 

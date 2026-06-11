@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
 import { useTrips } from '../state/TripContext.jsx'
 import CategoryIcon, { categories, categoryFor } from './CategoryIcon.jsx'
-import { suggestNextTime } from '../lib/planner.js'
+import { addDays, formatDate, suggestNextTime } from '../lib/planner.js'
 
-const emptyActivity = { name:'', time:'', address:'', priceLabel:'', category:'culture', latitude:null, longitude:null, tripadvisorLocationId:'' }
+const emptyActivity = { name:'', time:'', duration:'', address:'', priceLabel:'', category:'culture', latitude:null, longitude:null, tripadvisorLocationId:'' }
 
 const isExternalId = locationId => Boolean(locationId) && !String(locationId).startsWith('local-')
 
@@ -17,9 +17,16 @@ const inferCategory = (place, fallback) => {
 }
 
 export default function RouteTab({ onAskAssistant }) {
-  const { activeTrip, addDay, deleteDay, addActivity, deleteActivity, discoverPlaces, searchPlaces } = useTrips()
+  const {
+    activeTrip, addDay, updateDay, deleteDay, reorderDays,
+    addActivity, updateActivity, deleteActivity, reorderActivities,
+    discoverPlaces, searchPlaces
+  } = useTrips()
   const [showDay, setShowDay] = useState(false)
   const [dayForm, setDayForm] = useState({ city:'', title:'', date:'' })
+  const [editingDayId, setEditingDayId] = useState(null)
+  const [editingActivityId, setEditingActivityId] = useState(null)
+  const [orderingDayId, setOrderingDayId] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
   const [composerDayId, setComposerDayId] = useState(null)
   const [ideasDayId, setIdeasDayId] = useState(null)
@@ -34,15 +41,17 @@ export default function RouteTab({ onAskAssistant }) {
 
   const createDay = async event => {
     event.preventDefault()
-    const result = await addDay(dayForm)
+    const result = editingDayId ? await updateDay(editingDayId, dayForm) : await addDay(dayForm)
     if (result !== null) {
       setShowDay(false)
+      setEditingDayId(null)
       setDayForm({ city:'', title:'', date:'' })
     }
   }
 
   const closeComposer = () => {
     setComposerDayId(null)
+    setEditingActivityId(null)
     setAcOpen(false)
     setAcResults([])
     clearTimeout(acTimer.current)
@@ -50,7 +59,9 @@ export default function RouteTab({ onAskAssistant }) {
 
   const createActivity = async (event, dayId) => {
     event.preventDefault()
-    const result = await addActivity(dayId, actForm)
+    const result = editingActivityId
+      ? await updateActivity(dayId, editingActivityId, actForm)
+      : await addActivity(dayId, actForm)
     if (result !== null) {
       setActForm(emptyActivity)
       closeComposer()
@@ -66,9 +77,50 @@ export default function RouteTab({ onAskAssistant }) {
   }
 
   const openComposer = (day, category = 'culture') => {
+    setEditingActivityId(null)
     setComposerDayId(day.id)
     setIdeasDayId(null)
     setActForm({ ...emptyActivity, category, time:suggestNextTime(day.activities) })
+  }
+
+  const editActivity = (day, activity) => {
+    setEditingActivityId(activity.id)
+    setComposerDayId(day.id)
+    setIdeasDayId(null)
+    setActForm({
+      ...emptyActivity,
+      name:activity.name,
+      time:activity.time,
+      duration:activity.duration || '',
+      address:activity.address,
+      priceLabel:activity.priceLabel,
+      category:activity.category,
+      latitude:activity.latitude,
+      longitude:activity.longitude,
+      tripadvisorLocationId:activity.tripadvisorLocationId
+    })
+  }
+
+  const openDayForm = day => {
+    setEditingDayId(day?.id || null)
+    setDayForm(day
+      ? { city:day.city, title:day.title, date:day.date || '' }
+      : {
+          city:'',
+          title:'',
+          date:activeTrip.startDate ? addDays(activeTrip.startDate, activeTrip.days.length) : ''
+        })
+    setShowDay(true)
+  }
+
+  const moveActivity = async (day, index, direction) => {
+    const other = day.activities[index + direction]
+    if (other) await reorderActivities(day.id, day.activities[index].id, other.id)
+  }
+
+  const moveDay = async (index, direction) => {
+    const other = activeTrip.days[index + direction]
+    if (other) await reorderDays(activeTrip.days[index].id, other.id)
   }
 
   const loadIdeas = async (day, category = actForm.category) => {
@@ -174,15 +226,13 @@ export default function RouteTab({ onAskAssistant }) {
     }
   ])
 
-  const removeDay = async day => {
-    if (confirm(`¿Eliminar "${day.title}" y sus panoramas?`)) await deleteDay(day.id)
-  }
+  const removeDay = day => deleteDay(day.id)
 
   return (
     <section>
       <div className="section-heading">
         <div><h2>Ruta</h2><p>{activeTrip.days.length} días planificados</p></div>
-        <button className="primary-btn compact" onClick={() => setShowDay(true)}>+ Día</button>
+        <button className="primary-btn compact" onClick={() => openDayForm()}>+ Día</button>
       </div>
 
       {activeTrip.days.length === 0 ? (
@@ -191,31 +241,49 @@ export default function RouteTab({ onAskAssistant }) {
           <h2>Tu ruta está vacía</h2>
           <p>Agrega el primer día o pídele al asistente ✦ que arme una ruta por ti.</p>
         </div>
-      ) : activeTrip.days.map(day => (
+      ) : activeTrip.days.map((day, dayIndex) => (
         <article className={`day-card ${expandedId === day.id ? 'open' : ''}`} key={day.id}>
           <button type="button" className="day-head" onClick={() => toggleDay(day.id)}>
             <div className="day-number">{day.position}</div>
             <div className="day-info">
-              <span>{day.date || 'Sin fecha'} · {day.city}</span>
+              <span>{formatDate(day.date) || 'Sin fecha'} · {day.city}</span>
               <h3>{day.title}</h3>
-              <p>{day.activities.length} panoramas</p>
+              <div className="day-preview">
+                {day.activities.slice(0, 6).map(activity => <CategoryIcon key={activity.id} name={activity.category} />)}
+                {day.activities.length > 6 && <small>+{day.activities.length - 6}</small>}
+                <p>{day.activities.length} panoramas</p>
+              </div>
             </div>
             <span className="chevron">{expandedId === day.id ? '▾' : '▸'}</span>
           </button>
 
           {expandedId === day.id && (
             <div className="day-body">
+              <div className="day-tools">
+                <button onClick={() => openDayForm(day)}>Editar día</button>
+                <button onClick={() => setOrderingDayId(current => current === day.id ? null : day.id)}>
+                  {orderingDayId === day.id ? 'Listo' : 'Ordenar'}
+                </button>
+                <button onClick={() => moveDay(dayIndex, -1)} disabled={dayIndex === 0}>↑ Día</button>
+                <button onClick={() => moveDay(dayIndex, 1)} disabled={dayIndex === activeTrip.days.length - 1}>↓ Día</button>
+              </div>
               <div className="activity-timeline">
-                {day.activities.map(activity => {
+                {day.activities.map((activity, activityIndex) => {
                   const category = categoryFor(activity.category)
                   return (
                     <div className={`activity-line category-${category.id}`} key={activity.id}>
                       <div className="activity-category-icon"><CategoryIcon name={category.id} /></div>
-                      <div className="activity-copy">
-                        <span>{activity.time || 'Sin hora'} · {category.label}</span>
+                      <button type="button" className="activity-copy" onClick={() => editActivity(day, activity)}>
+                        <span>{[activity.time || 'Sin hora', activity.duration, category.label].filter(Boolean).join(' · ')}</span>
                         <h4>{activity.name}</h4>
                         {(activity.address || activity.priceLabel) && <small>{[activity.address, activity.priceLabel].filter(Boolean).join(' · ')}</small>}
-                      </div>
+                      </button>
+                      {orderingDayId === day.id && (
+                        <div className="order-controls">
+                          <button onClick={() => moveActivity(day, activityIndex, -1)} disabled={activityIndex === 0}>↑</button>
+                          <button onClick={() => moveActivity(day, activityIndex, 1)} disabled={activityIndex === day.activities.length - 1}>↓</button>
+                        </div>
+                      )}
                       {onAskAssistant && (
                         <div className="activity-menu">
                           <button className="icon-btn" onClick={() => setMenuActivityId(current => current === activity.id ? null : activity.id)} aria-label="Opciones del panorama">⋯</button>
@@ -255,7 +323,7 @@ export default function RouteTab({ onAskAssistant }) {
               {composerDayId === day.id && (
                 <form className="activity-composer" onSubmit={event => createActivity(event, day.id)}>
                   <div className="composer-heading">
-                    <div><span>NUEVO PANORAMA</span><h4>¿Qué quieres hacer?</h4></div>
+                    <div><span>{editingActivityId ? 'EDITAR PANORAMA' : 'NUEVO PANORAMA'}</span><h4>¿Qué quieres hacer?</h4></div>
                     <button type="button" className="icon-btn" onClick={closeComposer}>✕</button>
                   </div>
                   <div className="category-picker">
@@ -280,14 +348,15 @@ export default function RouteTab({ onAskAssistant }) {
                   </label>
                   <div className="composer-grid">
                     <label>Hora<input type="time" value={actForm.time} onChange={e => setActForm({ ...actForm, time:e.target.value })} /></label>
-                    <label>Precio estimado<input placeholder="Ej. 20 EUR" value={actForm.priceLabel} onChange={e => setActForm({ ...actForm, priceLabel:e.target.value })} /></label>
+                    <label>Duración<input placeholder="Ej. 2h" value={actForm.duration} onChange={e => setActForm({ ...actForm, duration:e.target.value })} /></label>
                   </div>
+                  <label>Precio estimado<input placeholder="Ej. 20 EUR" value={actForm.priceLabel} onChange={e => setActForm({ ...actForm, priceLabel:e.target.value })} /></label>
                   <label>Ubicación <span className="optional-label">opcional</span>
                     <input placeholder="Dirección o barrio" value={actForm.address} onChange={e => setActForm({ ...actForm, address:e.target.value })} />
                   </label>
                   <div className="composer-footer">
                     <button type="button" className="inspiration-link" onClick={() => loadIdeas(day, actForm.category)}>¿Necesitas ideas?</button>
-                    <button className="primary-btn compact">Agregar a la ruta</button>
+                    <button className="primary-btn compact">{editingActivityId ? 'Guardar cambios' : 'Agregar a la ruta'}</button>
                   </div>
                 </form>
               )}
@@ -340,13 +409,13 @@ export default function RouteTab({ onAskAssistant }) {
       {showDay && (
         <div className="modal-backdrop" onClick={() => setShowDay(false)}>
           <form className="modal-card" onSubmit={createDay} onClick={event => event.stopPropagation()}>
-            <h2>Agregar día</h2>
+            <h2>{editingDayId ? 'Editar día' : 'Agregar día'}</h2>
             <label>Ciudad<input autoFocus required value={dayForm.city} onChange={e => setDayForm({ ...dayForm, city:e.target.value })} /></label>
             <label>Título<input value={dayForm.title} onChange={e => setDayForm({ ...dayForm, title:e.target.value })} /></label>
             <label>Fecha<input type="date" value={dayForm.date} onChange={e => setDayForm({ ...dayForm, date:e.target.value })} /></label>
             <div className="modal-actions">
-              <button type="button" className="ghost-btn" onClick={() => setShowDay(false)}>Cancelar</button>
-              <button className="primary-btn compact">Agregar</button>
+              <button type="button" className="ghost-btn" onClick={() => { setShowDay(false); setEditingDayId(null) }}>Cancelar</button>
+              <button className="primary-btn compact">{editingDayId ? 'Guardar' : 'Agregar'}</button>
             </div>
           </form>
         </div>

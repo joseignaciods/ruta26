@@ -162,6 +162,16 @@ const tools = [
   },
   {
     type: 'function',
+    name: 'add_packing_item',
+    description: 'Agrega un ítem a la lista de equipaje',
+    parameters: {
+      type: 'object',
+      properties: { item: { type:'string' }, category: { type:'string' } },
+      required: ['item']
+    }
+  },
+  {
+    type: 'function',
     name: 'get_weather',
     description: 'Pronóstico (máx, mín, probabilidad de lluvia) para coordenadas y fecha. Úsalo antes de sugerir planes al aire libre.',
     parameters: {
@@ -224,7 +234,7 @@ const nextPosition = (rows: { position?: number }[] | null) =>
   (rows || []).reduce((max, row) => Math.max(max, row.position || 0), 0) + 1
 
 const externalTools = new Set(['search_places', 'search_nearby_places', 'get_place_details'])
-const writeTools = new Set(['add_day', 'add_activity', 'add_expense', 'add_hotel', 'update_activity', 'delete_activity', 'move_activity', 'update_day', 'delete_day', 'set_trip_preferences'])
+const writeTools = new Set(['add_day', 'add_activity', 'add_expense', 'add_hotel', 'add_packing_item', 'update_activity', 'delete_activity', 'move_activity', 'update_day', 'delete_day', 'set_trip_preferences'])
 
 // deno-lint-ignore no-explicit-any
 const pickActivityFields = (args: any) => {
@@ -340,6 +350,15 @@ async function runTool(supabase: any, tripId: string, userId: string, name: stri
       const { error } = await supabase.from('trips').update({ preferences:{ notes:String(args.notes || '') } }).eq('id', tripId)
       if (error) return { error: error.message }
       return { ok:true, changed:true, preferences:{ notes:args.notes } }
+    }
+    if (name === 'add_packing_item') {
+      const { data, error } = await supabase.from('packing_items').insert({
+        trip_id:tripId,
+        item:args.item,
+        category:args.category || 'essential'
+      }).select('id,item').single()
+      if (error) return { error:error.message }
+      return { ok:true, changed:true, packingItem:data }
     }
     if (name === 'get_weather') {
       const params = new URLSearchParams({
@@ -466,6 +485,7 @@ Deno.serve(async request => {
   let changed = false
   let externalContent = Boolean(externalContentInHistory)
   const sources = new Set<string>()
+  const actions: { tool:string, label:string, id:string, parentId?:string }[] = []
 
   for (let round = 0; round < 6; round++) {
     const response = await openai.responses.create({ model: 'gpt-5-mini', input, tools })
@@ -473,7 +493,7 @@ Deno.serve(async request => {
     const calls = response.output.filter((item: any) => item.type === 'function_call')
     if (!calls.length) {
       const { text, suggestedReplies } = splitReplies(response.output_text)
-      return json({ text, suggestedReplies, changed, externalContent, sources:[...sources] })
+      return json({ text, suggestedReplies, changed, externalContent, sources:[...sources], actions })
     }
 
     input = input.concat(response.output)
@@ -494,6 +514,17 @@ Deno.serve(async request => {
         args = sanitized
       }
       const result = await runTool(supabase, tripId, user.id, call.name, args)
+      if ('activity' in result && result.activity?.id) {
+        actions.push({ tool:call.name, label:`${result.activity.name || 'Panorama'} → ruta`, id:result.activity.id, parentId:result.activity.day_id })
+      } else if ('day' in result && result.day?.id) {
+        actions.push({ tool:call.name, label:`${result.day.title || result.day.city || 'Día'} → ruta`, id:result.day.id })
+      } else if ('expense' in result && result.expense?.id) {
+        actions.push({ tool:call.name, label:`${result.expense.description} → gastos`, id:result.expense.id })
+      } else if ('hotel' in result && result.hotel?.id) {
+        actions.push({ tool:call.name, label:`${result.hotel.name} → hoteles`, id:result.hotel.id })
+      } else if ('packingItem' in result && result.packingItem?.id) {
+        actions.push({ tool:call.name, label:`${result.packingItem.item} → equipaje`, id:result.packingItem.id })
+      }
       if ('changed' in result && result.changed) changed = true
       if ('externalContent' in result && result.externalContent) externalContent = true
       if ('places' in result && Array.isArray(result.places)) {
@@ -513,7 +544,8 @@ Deno.serve(async request => {
     suggestedReplies:[],
     changed,
     externalContent,
-    sources:[...sources]
+    sources:[...sources],
+    actions
   })
   } catch (error) {
     return json({ error:error instanceof Error ? error.message : 'Unexpected error' }, 500)

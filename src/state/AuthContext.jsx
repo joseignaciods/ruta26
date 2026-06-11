@@ -50,6 +50,16 @@ export function AuthProvider({ children }) {
       const { error } = await supabase.auth.signInWithPassword(values)
       if (error) throw error
     },
+    async magicLink(email) {
+      if (!hasSupabase) throw new Error('Disponible solo con Supabase')
+      const { error } = await supabase.auth.signInWithOtp({ email, options:{ emailRedirectTo:`${location.origin}/trips` } })
+      if (error) throw error
+    },
+    async resetPassword(email) {
+      if (!hasSupabase) throw new Error('Disponible solo con Supabase')
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo:`${location.origin}/login` })
+      if (error) throw error
+    },
     async logout() {
       if (hasSupabase) await supabase.auth.signOut()
       else localStore.logout()

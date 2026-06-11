@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../state/AuthContext.jsx'
 import { useTrips } from '../state/TripContext.jsx'
+import { formatDate } from '../lib/planner.js'
+import Skeleton from '../components/Skeleton.jsx'
 
 export default function TripsPage() {
   const { user, logout, backend } = useAuth()
-  const { trips, createTrip, createEuropeDemo, setActiveTripId, loading } = useTrips()
+  const { trips, createTrip, createEuropeDemo, setActiveTripId, loading, offline } = useTrips()
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({ name:'', startDate:'', endDate:'', currency:'USD' })
   const navigate = useNavigate()
@@ -25,6 +27,24 @@ export default function TripsPage() {
     const trip = await createEuropeDemo()
     if (trip) navigate(`/trips/${trip.id}`)
   }
+  const today = new Date().toISOString().slice(0, 10)
+  const sortedTrips = [...trips].sort((a, b) => {
+    const rank = trip => trip.startDate && trip.endDate && trip.startDate <= today && trip.endDate >= today ? 0 : trip.startDate >= today ? 1 : 2
+    return rank(a) - rank(b) || (a.startDate || '9999').localeCompare(b.startDate || '9999')
+  })
+  const tripState = trip => {
+    if (!trip.startDate) return { label:'Sin fecha', state:'draft' }
+    if (trip.startDate > today) {
+      const days = Math.ceil((new Date(`${trip.startDate}T12:00:00`) - new Date(`${today}T12:00:00`)) / 86400000)
+      return { label:`Faltan ${days} días`, state:'upcoming' }
+    }
+    if (!trip.endDate || trip.endDate >= today) {
+      const current = Math.max(1, Math.floor((new Date(`${today}T12:00:00`) - new Date(`${trip.startDate}T12:00:00`)) / 86400000) + 1)
+      return { label:`En curso · día ${current} de ${trip.days.length || '?'}`, state:'current' }
+    }
+    return { label:'Finalizado', state:'past' }
+  }
+  const coverIndex = name => [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 6
 
   return (
     <main className="dashboard">
@@ -34,8 +54,9 @@ export default function TripsPage() {
       </header>
 
       {backend === 'local' && <div className="notice">Ambiente local: los datos están en este navegador. Al conectar Supabase se sincronizarán entre usuarios.</div>}
+      {offline && <div className="offline-banner">Sin conexión — mostrando última copia</div>}
 
-      {loading ? <div className="empty-panel">Cargando viajes...</div> : trips.length === 0 ? (
+      {loading ? <Skeleton variant="trip" /> : trips.length === 0 ? (
         <section className="empty-panel">
           <div className="empty-icon">✈</div>
           <h2>Aún no tienes viajes</h2>
@@ -44,13 +65,15 @@ export default function TripsPage() {
         </section>
       ) : (
         <section className="trip-grid">
-          {trips.map(trip => (
+          {sortedTrips.map(trip => {
+            const status = tripState(trip)
+            return (
             <button key={trip.id} className="trip-card" onClick={() => openTrip(trip)}>
-              <div className="trip-cover">{trip.name.slice(0,2).toUpperCase()}</div>
-              <div><h2>{trip.name}</h2><p>{trip.startDate || 'Sin fecha'} · {trip.members.length} participante(s)</p></div>
+              <div className={`trip-cover cover-${coverIndex(trip.name)}`}>{trip.name.slice(0,2).toUpperCase()}</div>
+              <div><span className={`trip-status ${status.state}`}>{status.label}</span><h2>{trip.name}</h2><p>{formatDate(trip.startDate) || 'Sin fecha'} · {trip.members.length} participante(s)</p></div>
               <span>→</span>
             </button>
-          ))}
+          )})}
           <button className="new-trip-card" onClick={() => setShowCreate(true)}>+ Nuevo viaje</button>
           {backend === 'local' && <button className="new-trip-card demo-trip-card" onClick={createDemo}>✦ Crear demo Europa</button>}
         </section>

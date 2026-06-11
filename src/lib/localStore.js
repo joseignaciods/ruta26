@@ -89,6 +89,10 @@ export const localStore = {
     return trip
   },
 
+  deleteTrip(tripId) {
+    write(TRIPS_KEY, read(TRIPS_KEY, []).filter(trip => trip.id !== tripId))
+  },
+
   createEuropeDemo(user) {
     const trips = read(TRIPS_KEY, [])
     const memberId = id()
@@ -271,6 +275,43 @@ export const localStore = {
     return trip
   },
 
+  restoreDay(tripId, day) {
+    const trips = read(TRIPS_KEY, [])
+    const trip = getTrip(trips, tripId)
+    trip.days.push(day)
+    trip.days.sort((a, b) => (a.position || a.day) - (b.position || b.day))
+    write(TRIPS_KEY, trips)
+    return trip
+  },
+
+  updateDay(tripId, dayId, fields) {
+    const trips = read(TRIPS_KEY, [])
+    const trip = getTrip(trips, tripId)
+    const day = trip.days.find(item => item.id === dayId)
+    if (!day) throw new Error('Día no encontrado')
+    for (const [key, value] of Object.entries(fields)) {
+      if (value !== undefined) day[key] = value
+    }
+    write(TRIPS_KEY, trips)
+    return trip
+  },
+
+  reorderDays(tripId, firstId, secondId) {
+    const trips = read(TRIPS_KEY, [])
+    const trip = getTrip(trips, tripId)
+    const first = trip.days.find(item => item.id === firstId)
+    const second = trip.days.find(item => item.id === secondId)
+    if (!first || !second) throw new Error('Día no encontrado')
+    const firstPosition = first.position || first.day
+    first.position = second.position || second.day
+    second.position = firstPosition
+    first.day = first.position
+    second.day = second.position
+    trip.days.sort((a, b) => (a.position || a.day) - (b.position || b.day))
+    write(TRIPS_KEY, trips)
+    return trip
+  },
+
   addActivity(tripId, dayId, values) {
     const trips = read(TRIPS_KEY, [])
     const trip = getTrip(trips, tripId)
@@ -282,12 +323,14 @@ export const localStore = {
       position:nextPos(day.activities),
       name:values.name,
       time:values.time || '',
+      duration:values.duration || '',
       address:values.address || '',
       category:values.category || 'entertainment',
       priceLabel:values.priceLabel || '',
       latitude:values.latitude ?? null,
       longitude:values.longitude ?? null,
-      tripadvisorLocationId:values.tripadvisorLocationId || ''
+      tripadvisorLocationId:values.tripadvisorLocationId || '',
+      done:!!values.done
     })
     write(TRIPS_KEY, trips)
     return trip
@@ -311,6 +354,42 @@ export const localStore = {
     const trip = getTrip(trips, tripId)
     const day = trip.days.find(item => item.id === dayId)
     if (day) day.activities = (day.activities || []).filter(item => item.id !== activityId)
+    write(TRIPS_KEY, trips)
+    return trip
+  },
+
+  restoreActivity(tripId, dayId, activity) {
+    const trips = read(TRIPS_KEY, [])
+    const trip = getTrip(trips, tripId)
+    const day = trip.days.find(item => item.id === dayId)
+    day.activities.push(activity)
+    day.activities.sort((a, b) => a.position - b.position)
+    write(TRIPS_KEY, trips)
+    return trip
+  },
+
+  reorderActivities(tripId, dayId, firstId, secondId) {
+    const trips = read(TRIPS_KEY, [])
+    const trip = getTrip(trips, tripId)
+    const day = trip.days.find(item => item.id === dayId)
+    const first = day?.activities?.find(item => item.id === firstId)
+    const second = day?.activities?.find(item => item.id === secondId)
+    if (!first || !second) throw new Error('Panorama no encontrado')
+    const position = first.position
+    first.position = second.position
+    second.position = position
+    day.activities.sort((a, b) => a.position - b.position)
+    write(TRIPS_KEY, trips)
+    return trip
+  },
+
+  toggleActivityDone(tripId, dayId, activityId) {
+    const trips = read(TRIPS_KEY, [])
+    const trip = getTrip(trips, tripId)
+    const day = trip.days.find(item => item.id === dayId)
+    const activity = day?.activities?.find(item => item.id === activityId)
+    if (!activity) throw new Error('Panorama no encontrado')
+    activity.done = !activity.done
     write(TRIPS_KEY, trips)
     return trip
   },
@@ -343,6 +422,12 @@ export const localStore = {
     return trip
   },
 
+  restoreHotel(tripId, hotel) {
+    const trips = read(TRIPS_KEY, [])
+    getTrip(trips, tripId).hotels.push(hotel)
+    write(TRIPS_KEY, trips)
+  },
+
   addExpense(tripId, values) {
     const trips = read(TRIPS_KEY, [])
     const trip = getTrip(trips, tripId)
@@ -367,10 +452,24 @@ export const localStore = {
     return trip
   },
 
+  restoreExpense(tripId, expense) {
+    const trips = read(TRIPS_KEY, [])
+    getTrip(trips, tripId).expenses.push(expense)
+    write(TRIPS_KEY, trips)
+  },
+
   addPackingItem(tripId, item) {
     const trips = read(TRIPS_KEY, [])
     const trip = getTrip(trips, tripId)
     trip.packingItems.push({ id:id(), item, packed:false })
+    write(TRIPS_KEY, trips)
+    return trip
+  },
+
+  addPackingItems(tripId, items) {
+    const trips = read(TRIPS_KEY, [])
+    const trip = getTrip(trips, tripId)
+    trip.packingItems.push(...items.map(item => ({ id:id(), item, packed:false, category:'essential' })))
     write(TRIPS_KEY, trips)
     return trip
   },
@@ -390,6 +489,12 @@ export const localStore = {
     trip.packingItems = trip.packingItems.filter(item => item.id !== itemId)
     write(TRIPS_KEY, trips)
     return trip
+  },
+
+  restorePackingItem(tripId, item) {
+    const trips = read(TRIPS_KEY, [])
+    getTrip(trips, tripId).packingItems.push(item)
+    write(TRIPS_KEY, trips)
   },
 
   chat(tripId) {

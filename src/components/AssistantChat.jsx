@@ -7,8 +7,41 @@ const suggestions = [
   'Recomienda restaurantes cercanos'
 ]
 
+const inlineMarkdown = text => {
+  const parts = String(text).split(/(\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^)]+\))/g)
+  return parts.map((part, index) => {
+    const bold = part.match(/^\*\*(.+)\*\*$/)
+    if (bold) return <strong key={index}>{bold[1]}</strong>
+    const link = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/)
+    if (link) return <a key={index} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>
+    return part
+  })
+}
+
+function Markdown({ children }) {
+  const lines = String(children || '').split('\n')
+  const blocks = []
+  let list = []
+  const flush = () => {
+    if (!list.length) return
+    blocks.push(<ul key={`list-${blocks.length}`}>{list.map((line, index) => <li key={index}>{inlineMarkdown(line)}</li>)}</ul>)
+    list = []
+  }
+  lines.forEach((line, index) => {
+    const match = line.match(/^\s*(?:-|\d+\.)\s+(.+)$/)
+    if (match) list.push(match[1])
+    else {
+      flush()
+      if (line) blocks.push(<p key={index}>{inlineMarkdown(line)}</p>)
+      else blocks.push(<br key={index} />)
+    }
+  })
+  flush()
+  return blocks
+}
+
 export default function AssistantChat({ open: controlledOpen, onOpenChange, initialPrompt, onPromptConsumed }) {
-  const { activeTrip, askAssistant, loadChat } = useTrips()
+  const { activeTrip, askAssistant, loadChat, deleteDay, deleteActivity, deleteExpense, deleteHotel, deletePackingItem } = useTrips()
   const [internalOpen, setInternalOpen] = useState(false)
   const [messages, setMessages] = useState([])
   const [text, setText] = useState('')
@@ -57,11 +90,19 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
         externalContent:reply.externalContent,
         sources:reply.sources || [],
         suggestedReplies:reply.suggestedReplies || []
+        ,actions:reply.actions || []
       }])
     }
   }
 
   const last = messages[messages.length - 1]
+  const undoAction = async action => {
+    if (action.tool === 'add_day') await deleteDay(action.id)
+    if (action.tool === 'add_activity') await deleteActivity(action.parentId, action.id)
+    if (action.tool === 'add_expense') await deleteExpense(action.id)
+    if (action.tool === 'add_hotel') await deleteHotel(action.id)
+    if (action.tool === 'add_packing_item') await deletePackingItem(action.id)
+  }
 
   return (
     <>
@@ -81,7 +122,7 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
             )}
             {messages.map((message, index) => (
               <div key={index} className={`chat-bubble ${message.role}`}>
-                {message.content}
+                <Markdown>{message.content}</Markdown>
                 {message.sources?.length > 0 && (
                   <div className="chat-sources">
                     <b>Fuentes en Tripadvisor</b>
@@ -91,6 +132,7 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
                   </div>
                 )}
                 {message.externalContent && <small className="live-content-note">Datos en vivo · esta respuesta no se guarda</small>}
+                {message.actions?.length > 0 && <div className="assistant-actions">{message.actions.map((action, actionIndex) => <div key={`${action.id}-${actionIndex}`}><span>✓ {action.label}</span>{action.tool.startsWith('add_') && <button onClick={() => undoAction(action)}>Deshacer</button>}</div>)}</div>}
               </div>
             ))}
             {!busy && last?.role === 'assistant' && last.suggestedReplies?.length > 0 && (

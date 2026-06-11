@@ -1,11 +1,13 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useTrips } from '../state/TripContext.jsx'
+import { useAuth } from '../state/AuthContext.jsx'
 import { hasSupabase } from '../lib/supabase.js'
 import RouteTab from '../components/RouteTab.jsx'
 import AssistantChat from '../components/AssistantChat.jsx'
 import TripTab from '../components/TripTab.jsx'
 import TodayTab from '../components/TodayTab.jsx'
+import Skeleton from '../components/Skeleton.jsx'
 
 const MapTab = lazy(() => import('../components/MapTab.jsx'))
 
@@ -16,6 +18,11 @@ const tabs = [
   ['trip','Viaje','suitcase'],
   ['settings','Config','settings']
 ]
+
+const avatarColor = value => {
+  const hue = [...(value || 'Ruta26')].reduce((total, char) => total + char.charCodeAt(0), 0) % 360
+  return `hsl(${hue} 62% 48%)`
+}
 
 function NavIcon({ name }) {
   const paths = {
@@ -31,7 +38,7 @@ function NavIcon({ name }) {
 export default function TripWorkspace() {
   const { tripId } = useParams()
   const navigate = useNavigate()
-  const { trips, activeTrip, setActiveTripId, loading } = useTrips()
+  const { trips, activeTrip, setActiveTripId, loading, offline } = useTrips()
   const [tab, setTab] = useState('route')
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [assistantPrompt, setAssistantPrompt] = useState('')
@@ -49,12 +56,17 @@ export default function TripWorkspace() {
       setTab(activeTrip.days.some(day => day.date) ? 'today' : 'route')
     }
   }, [activeTrip, tripId])
-  if (loading && !activeTrip) return <div className="center-page">Cargando viaje...</div>
+  if (loading && !activeTrip) return <div className="dashboard"><Skeleton variant="day" /></div>
   if (!activeTrip && trips.length) return <Navigate to="/trips" replace />
   if (!activeTrip) return <div className="center-page">Preparando viaje...</div>
 
   return (
     <div className="workspace">
+      {offline && (
+        <div className="offline-banner" role="status">
+          Estás sin conexión. Mostramos la última versión guardada y sincronizaremos al volver.
+        </div>
+      )}
       <header className="workspace-header">
         <button className="back-btn" onClick={() => navigate('/trips')}>←</button>
         <div><span>VIAJE ACTIVO</span><h1>{activeTrip.name}</h1></div>
@@ -65,7 +77,7 @@ export default function TripWorkspace() {
         {tab === 'route' && <RouteTab onAskAssistant={openAssistant} />}
         {tab === 'today' && <TodayTab onOpenAssistant={openAssistant} />}
         {tab === 'map' && <Suspense fallback={<div className="center-page">Cargando mapa...</div>}><MapTab /></Suspense>}
-        {tab === 'trip' && <TripTab />}
+        {tab === 'trip' && <TripTab onOpenAssistant={openAssistant} />}
         {tab === 'settings' && <SettingsPanel trip={activeTrip} />}
       </main>
 
@@ -89,10 +101,13 @@ export default function TripWorkspace() {
 }
 
 function SettingsPanel({ trip }) {
-  const { updateTrip, invite, revokeInvite } = useTrips()
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const { updateTrip, deleteTrip, invite, revokeInvite } = useTrips()
   const [section, setSection] = useState('general')
   const [form, setForm] = useState({ name:trip.name, startDate:trip.startDate || '', endDate:trip.endDate || '', currency:trip.currency || 'USD', timezone:trip.timezone || 'America/Santiago', notes:trip.preferences?.notes || '' })
   const [email, setEmail] = useState('')
+  const [deleteName, setDeleteName] = useState('')
 
   const sendInvite = async event => {
     event.preventDefault()
@@ -109,12 +124,16 @@ function SettingsPanel({ trip }) {
         <div className="two-cols"><label>Inicio<input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate:e.target.value })} /></label><label>Fin<input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate:e.target.value })} /></label></div>
         <label>Notas para el asistente<textarea rows={3} placeholder="Ej. viajamos con un niño de 8 años, sin carne, presupuesto medio" value={form.notes} onChange={e => setForm({ ...form, notes:e.target.value })} /></label>
         <button className="primary-btn compact" onClick={() => updateTrip({ ...form, preferences:{ ...trip.preferences, notes:form.notes } })}>Guardar</button>
+        {trip.ownerId === user.id && <div className="danger-zone"><h3>Zona de peligro</h3><p>Eliminar este viaje es irreversible.</p><input placeholder={`Escribe "${trip.name}"`} value={deleteName} onChange={event => setDeleteName(event.target.value)} /><button disabled={deleteName !== trip.name} onClick={async () => { await deleteTrip(trip.id); navigate('/trips') }}>Eliminar viaje</button></div>}
       </div>}
       {section === 'members' && <div className="panel-card">
         <form className="invite-form" onSubmit={sendInvite}><input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="correo@ejemplo.com" /><button className="primary-btn compact">Invitar</button></form>
         <h3>Participantes</h3>
-        {trip.members.map(member => <div className="member-line" key={member.id}><span>{member.name || member.email || 'Usuario'}</span><b>{member.role === 'owner' ? 'Propietario' : 'Editor'}</b></div>)}
-        {trip.invitations?.map(item => <div className="member-line" key={item.id}><span>{item.email}<small>Pendiente</small></span><button onClick={() => revokeInvite(item.id)}>Revocar</button></div>)}
+        {trip.members.map(member => {
+          const label = member.name || member.email || 'Usuario'
+          return <div className="member-line" key={member.id}><i className="member-avatar" style={{ background:avatarColor(label) }}>{label.slice(0, 2).toUpperCase()}</i><span>{label}{member.userId === user.id && <small>(tú)</small>}</span><b>{member.role === 'owner' ? 'Propietario' : 'Editor'}</b></div>
+        })}
+        {trip.invitations?.filter(item => item.status === 'pending').map(item => <div className="member-line" key={item.id}><span>{item.email}<small>Pendiente</small>{hasSupabase && item.share_token && <button onClick={() => navigator.clipboard.writeText(`${location.origin}/join/${item.share_token}`)}>Copiar link</button>}</span><button onClick={() => revokeInvite(item.id)}>Revocar</button></div>)}
       </div>}
       {section === 'integrations' && <div className="panel-card">
         <h3>Asistente IA</h3>

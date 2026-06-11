@@ -6,6 +6,7 @@ import { useTrips } from '../state/TripContext.jsx'
 import CategoryIcon, { categories, categoryFor, pinHtml, hotelPinHtml } from './CategoryIcon.jsx'
 
 const hasCoords = item => item.latitude != null && item.longitude != null
+const mapsUrl = item => `https://www.google.com/maps/search/?api=1&query=${item.latitude},${item.longitude}`
 
 export default function MapTab() {
   const { activeTrip, updateActivity, searchPlaces } = useTrips()
@@ -62,7 +63,7 @@ export default function MapTab() {
           const category = categoryFor(activity.category)
           const icon = L.divIcon({ className:'poi-pin-wrap', html:pinHtml(category.id, activityIndex + 1), iconSize:[32, 32], iconAnchor:[16, 16] })
           L.marker(latLng, { icon })
-            .bindPopup(`<b>${activityIndex + 1}. ${activity.name}</b><br>${[activity.time, category.label].filter(Boolean).join(' · ')}${activity.address ? `<br>${activity.address}` : ''}`)
+            .bindPopup(`<b>${activityIndex + 1}. ${activity.name}</b><br>${[activity.time, category.label].filter(Boolean).join(' · ')}${activity.address ? `<br>${activity.address}` : ''}<br><a href="${mapsUrl(activity)}" target="_blank" rel="noreferrer">Cómo llegar ↗</a>`)
             .addTo(map)
         }
       }
@@ -78,7 +79,7 @@ export default function MapTab() {
         const latLng = [hotel.latitude, hotel.longitude]
         points.push(latLng)
         const icon = L.divIcon({ className:'poi-pin-wrap', html:hotelPinHtml(), iconSize:[32, 32], iconAnchor:[16, 16] })
-        L.marker(latLng, { icon }).bindPopup(`<b>${hotel.name}</b><br>${hotel.address || hotel.city}`).addTo(map)
+        L.marker(latLng, { icon }).bindPopup(`<b>${hotel.name}</b><br>${hotel.address || hotel.city}<br><a href="${mapsUrl(hotel)}" target="_blank" rel="noreferrer">Cómo llegar ↗</a>`).addTo(map)
       }
 
       if (!alive) return
