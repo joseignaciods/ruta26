@@ -51,6 +51,10 @@ Deno.serve(async request => {
     })
     return json({ provider:'tripadvisor', places, externalContent:true })
   } catch (error) {
-    return json({ error:error instanceof Error ? error.message : 'Unexpected error' }, 500)
+    const message = error instanceof Error ? error.message : 'Unexpected error'
+    if (message.includes('monthly limit reached')) {
+      return json({ error:'Tripadvisor quota mensual alcanzada. Búsqueda externa pausada hasta el próximo mes.', quotaExceeded:true }, 429)
+    }
+    return json({ error:message }, 500)
   }
 })

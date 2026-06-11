@@ -1,3 +1,5 @@
+import { ensureTripadvisorQuota, recordTripadvisorDetails } from './quota.ts'
+
 const TRIPADVISOR_BASE = 'https://api.content.tripadvisor.com/api/v1'
 
 export type PlaceCategory = 'hotels' | 'attractions' | 'restaurants' | 'geos'
@@ -71,10 +73,12 @@ export async function getPlaceDetails(
   locationId: string,
   options: { language?: string, currency?: string } = {}
 ) {
+  await ensureTripadvisorQuota()
   const data = await request(`/location/${encodeURIComponent(locationId)}/details`, {
     language:options.language || 'es',
     currency:options.currency || 'USD'
   })
+  await recordTripadvisorDetails(1)
   return normalizePlace(data)
 }
 
@@ -92,17 +96,22 @@ export async function searchPlaces(options: SearchOptions) {
     language:options.language || 'es'
   })
   const matches = ((data.data || []) as Record<string, unknown>[]).slice(0, limit)
-  const details = await Promise.all(matches.map(async match => {
+  const details: ReturnType<typeof normalizePlace>[] = []
+  for (const match of matches) {
     const locationId = String(match.location_id || '')
-    if (!locationId) return normalizePlace(match)
+    if (!locationId) { details.push(normalizePlace(match)); continue }
     try {
-      return await getPlaceDetails(locationId, {
+      details.push(await getPlaceDetails(locationId, {
         language:options.language,
         currency:options.currency
-      })
-    } catch {
-      return normalizePlace(match)
+      }))
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('monthly limit reached')) {
+        details.push(normalizePlace(match))
+        break
+      }
+      details.push(normalizePlace(match))
     }
-  }))
+  }
   return details
 }

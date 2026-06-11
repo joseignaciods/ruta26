@@ -488,7 +488,8 @@ Deno.serve(async request => {
   const actions: { tool:string, label:string, id:string, parentId?:string }[] = []
 
   for (let round = 0; round < 6; round++) {
-    const response = await openai.responses.create({ model: 'gpt-5-mini', input, tools })
+    const model = Deno.env.get('OPENAI_MODEL') || 'gpt-5-mini'
+    const response = await openai.responses.create({ model, input, tools })
     // deno-lint-ignore no-explicit-any
     const calls = response.output.filter((item: any) => item.type === 'function_call')
     if (!calls.length) {
