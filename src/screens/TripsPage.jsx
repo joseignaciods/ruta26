@@ -89,7 +89,7 @@ export default function TripsPage() {
               <label>Fin<input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate:e.target.value })} /></label>
             </div>
             <label>Moneda<select value={form.currency} onChange={e => setForm({ ...form, currency:e.target.value })}><option>USD</option><option>CLP</option><option>EUR</option></select></label>
-            <div className="modal-actions"><button type="button" className="ghost-btn" onClick={() => setShowCreate(false)}>Cancelar</button><button className="primary-btn compact">Crear vacío</button></div>
+            <div className="modal-actions"><button type="button" className="ghost-btn" onClick={() => setShowCreate(false)}>Cancelar</button><button className="primary-btn compact">Crear viaje</button></div>
           </form>
         </div>
       )}

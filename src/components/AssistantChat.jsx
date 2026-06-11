@@ -47,6 +47,7 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const endRef = useRef(null)
+  const panelRef = useRef(null)
   const messagesRef = useRef([])
   const sentPromptRef = useRef(null)
   const tripId = activeTrip?.id
@@ -82,6 +83,27 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
   }
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior:'smooth' }) }, [messages, busy])
+
+  useEffect(() => {
+    if (!open) return
+    const viewport = window.visualViewport
+    const syncViewport = () => {
+      const panel = panelRef.current
+      if (!panel) return
+      panel.style.setProperty('--assistant-viewport-height', `${viewport?.height || window.innerHeight}px`)
+      panel.style.setProperty('--assistant-viewport-top', `${viewport?.offsetTop || 0}px`)
+      requestAnimationFrame(() => endRef.current?.scrollIntoView({ block:'end' }))
+    }
+    syncViewport()
+    viewport?.addEventListener('resize', syncViewport)
+    viewport?.addEventListener('scroll', syncViewport)
+    window.addEventListener('orientationchange', syncViewport)
+    return () => {
+      viewport?.removeEventListener('resize', syncViewport)
+      viewport?.removeEventListener('scroll', syncViewport)
+      window.removeEventListener('orientationchange', syncViewport)
+    }
+  }, [open])
 
   if (!activeTrip) return null
 
@@ -119,7 +141,7 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
     <>
       <button className="assistant-fab" onClick={() => setOpen(!open)} aria-label="Asistente de viaje">✦</button>
       {open && (
-        <div className="assistant-panel">
+        <div className="assistant-panel" ref={panelRef}>
           <header className="assistant-header">
             <div><span>ASISTENTE RUTA26</span><h3>{activeTrip.name}</h3></div>
             <div className="assistant-header-actions">

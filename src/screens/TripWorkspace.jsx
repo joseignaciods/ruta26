@@ -61,7 +61,7 @@ export default function TripWorkspace() {
   if (!activeTrip) return <div className="center-page">Preparando viaje...</div>
 
   return (
-    <div className="workspace">
+    <div className={`workspace ${assistantOpen ? 'assistant-open' : ''}`}>
       {offline && (
         <div className="offline-banner" role="status">
           Estás sin conexión. Mostramos la última versión guardada y sincronizaremos al volver.

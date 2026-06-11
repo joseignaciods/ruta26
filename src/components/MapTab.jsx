@@ -7,6 +7,7 @@ import CategoryIcon, { categories, categoryFor, pinHtml, hotelPinHtml } from './
 
 const hasCoords = item => item.latitude != null && item.longitude != null
 const mapsUrl = item => `https://www.google.com/maps/search/?api=1&query=${item.latitude},${item.longitude}`
+const dayColors = ['#8b5cf6', '#0ea5a8', '#f59e0b', '#c44e92', '#2563eb', '#16a34a']
 
 export default function MapTab() {
   const { activeTrip, updateActivity, searchPlaces } = useTrips()
@@ -20,6 +21,8 @@ export default function MapTab() {
   const [locationResults, setLocationResults] = useState([])
   const [locationBusy, setLocationBusy] = useState(false)
   const selectedDay = activeTrip.days.find(day => day.id === selectedDayId)
+  const tripCities = new Set(activeTrip.days.map(day => day.city?.trim().toLowerCase()).filter(Boolean))
+  const isSingleCityTrip = tripCities.size === 1
 
   useEffect(() => {
     if (!elementRef.current) return
@@ -36,8 +39,47 @@ export default function MapTab() {
       const visibleDays = selectedDay ? [selectedDay] : activeTrip.days
       const dayActivityCoords = selectedDay ? selectedDay.activities.filter(hasCoords) : []
 
-      // Marker de ciudad: siempre en vista general; en vista por día solo si no hay panoramas ubicados.
-      if (!selectedDay || dayActivityCoords.length === 0) {
+      if (!selectedDay && isSingleCityTrip) {
+        const overviewDays = activeTrip.days.map((day, dayIndex) => ({
+          day,
+          dayIndex,
+          route:day.activities
+            .filter(hasCoords)
+            .map(activity => [activity.latitude, activity.longitude])
+        }))
+        const renderOrder = [...overviewDays.slice(1), ...overviewDays.slice(0, 1)]
+
+        renderOrder.forEach(({ day, dayIndex, route:dayRoute }) => {
+          if (!dayRoute.length) return
+          points.push(...dayRoute)
+          const color = dayColors[dayIndex % dayColors.length]
+          const isFeatured = dayIndex === 0
+          if (dayRoute.length > 1) {
+            const line = L.polyline(dayRoute, {
+              color,
+              weight:isFeatured ? 5 : 3,
+              opacity:isFeatured ? .95 : .45,
+              dashArray:isFeatured ? undefined : `${7 + dayIndex * 2} 7`
+            }).addTo(map)
+            line.bindTooltip(`Día ${day.position} · ${day.activities.length} ${day.activities.length === 1 ? 'panorama' : 'panoramas'}`, { sticky:true })
+            line.on('click', () => setSelectedDayId(day.id))
+          }
+
+          const icon = L.divIcon({
+            className:'overview-day-marker',
+            html:`<span style="--day-color:${color}">D${day.position}</span>`,
+            iconSize:[34, 30],
+            iconAnchor:[17, 15]
+          })
+          L.marker(dayRoute[0], { icon })
+            .bindPopup(`<b>Día ${day.position}</b><br>${day.activities.length} ${day.activities.length === 1 ? 'panorama' : 'panoramas'}`)
+            .on('click', () => setSelectedDayId(day.id))
+            .addTo(map)
+        })
+      }
+
+      // En viajes entre ciudades se mantiene el resumen geográfico por jornada.
+      if ((!selectedDay && !isSingleCityTrip) || (selectedDay && dayActivityCoords.length === 0)) {
         for (const day of visibleDays) {
           try {
             const point = await geocodeCity(day.city)
@@ -54,17 +96,19 @@ export default function MapTab() {
         }
       }
 
-      for (const day of visibleDays) {
-        for (const [activityIndex, activity] of day.activities.entries()) {
-          if (!hasCoords(activity)) continue
-          const latLng = [activity.latitude, activity.longitude]
-          points.push(latLng)
-          if (selectedDay) route.push(latLng)
-          const category = categoryFor(activity.category)
-          const icon = L.divIcon({ className:'poi-pin-wrap', html:pinHtml(category.id, activityIndex + 1), iconSize:[32, 32], iconAnchor:[16, 16] })
-          L.marker(latLng, { icon })
-            .bindPopup(`<b>${activityIndex + 1}. ${activity.name}</b><br>${[activity.time, category.label].filter(Boolean).join(' · ')}${activity.address ? `<br>${activity.address}` : ''}<br><a href="${mapsUrl(activity)}" target="_blank" rel="noreferrer">Cómo llegar ↗</a>`)
-            .addTo(map)
+      if (selectedDay || !isSingleCityTrip) {
+        for (const day of visibleDays) {
+          for (const [activityIndex, activity] of day.activities.entries()) {
+            if (!hasCoords(activity)) continue
+            const latLng = [activity.latitude, activity.longitude]
+            points.push(latLng)
+            if (selectedDay) route.push(latLng)
+            const category = categoryFor(activity.category)
+            const icon = L.divIcon({ className:'poi-pin-wrap', html:pinHtml(category.id, activityIndex + 1), iconSize:[32, 32], iconAnchor:[16, 16] })
+            L.marker(latLng, { icon })
+              .bindPopup(`<b>${activityIndex + 1}. ${activity.name}</b><br>${[activity.time, category.label].filter(Boolean).join(' · ')}${activity.address ? `<br>${activity.address}` : ''}<br><a href="${mapsUrl(activity)}" target="_blank" rel="noreferrer">Cómo llegar ↗</a>`)
+              .addTo(map)
+          }
         }
       }
 
@@ -73,7 +117,7 @@ export default function MapTab() {
             hotel.city.toLowerCase() === selectedDay.city.toLowerCase() ||
             (selectedDay.date && hotel.checkIn <= selectedDay.date && (!hotel.checkOut || hotel.checkOut >= selectedDay.date))
           )
-        : activeTrip.hotels
+        : isSingleCityTrip ? [] : activeTrip.hotels
       for (const hotel of visibleHotels) {
         if (!hasCoords(hotel)) continue
         const latLng = [hotel.latitude, hotel.longitude]
@@ -92,7 +136,7 @@ export default function MapTab() {
         }).addTo(map)
       }
       if (points.length) {
-        map.fitBounds(points, { padding:[28, 28], maxZoom:selectedDay ? 15 : 13 })
+        map.fitBounds(points, { padding:[28, 28], maxZoom:selectedDay || isSingleCityTrip ? 15 : 13 })
         setEmpty(false)
       } else {
         map.setView([-33.45, -70.66], 3)
@@ -106,7 +150,7 @@ export default function MapTab() {
       map.remove()
       mapRef.current = null
     }
-  }, [activeTrip.days, activeTrip.hotels, selectedDay, selectedDayId])
+  }, [activeTrip.days, activeTrip.hotels, isSingleCityTrip, selectedDay, selectedDayId])
 
   const locate = async activity => {
     if (!selectedDay || !activity.address) return
@@ -160,15 +204,20 @@ export default function MapTab() {
             <path d="m3 6 5-2 8 2 5-2v14l-5 2-8-2-5 2Z" />
             <path d="M8 4v14M16 6v14" />
           </svg>
-          <span><b>Vista general</b><small>Ruta completa · {activeTrip.days.length} días</small></span>
+          <span><b>Vista general</b><small>Ruta completa · {activeTrip.days.length} {activeTrip.days.length === 1 ? 'día' : 'días'}</small></span>
           <i>→</i>
         </button>
         <div className="map-days-heading"><span>DÍAS DEL VIAJE</span><small>Selecciona una jornada</small></div>
         <div className="map-day-tabs">
-          {activeTrip.days.map(day => (
-            <button key={day.id} className={selectedDayId === day.id ? 'active' : ''} onClick={() => setSelectedDayId(day.id)}>
+          {activeTrip.days.map((day, dayIndex) => (
+            <button
+              key={day.id}
+              className={selectedDayId === day.id ? 'active' : ''}
+              style={{ '--day-color':dayColors[dayIndex % dayColors.length] }}
+              onClick={() => setSelectedDayId(day.id)}
+            >
               <b>{day.position}</b>
-              <span>{day.city}</span>
+              <span>{isSingleCityTrip ? `${day.activities.length} ${day.activities.length === 1 ? 'panorama' : 'panoramas'}` : day.city}</span>
               <small>{day.date ? day.date.slice(5).replace('-', '/') : 'Sin fecha'}</small>
             </button>
           ))}
@@ -226,7 +275,7 @@ export default function MapTab() {
           ))}
         </div>
       )}
-      {empty && <p className="map-empty">Agrega días con ciudades para ver el mapa.</p>}
+      {empty && <p className="map-empty">{isSingleCityTrip ? 'Agrega ubicaciones a tus panoramas para ver los recorridos.' : 'Agrega días con ciudades para ver el mapa.'}</p>}
     </section>
   )
 }
