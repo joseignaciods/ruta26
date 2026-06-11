@@ -5,7 +5,7 @@ import { useTrips } from '../state/TripContext.jsx'
 
 export default function TripsPage() {
   const { user, logout, backend } = useAuth()
-  const { trips, createTrip, setActiveTripId, loading } = useTrips()
+  const { trips, createTrip, createEuropeDemo, setActiveTripId, loading } = useTrips()
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({ name:'', startDate:'', endDate:'', currency:'USD' })
   const navigate = useNavigate()
@@ -18,7 +18,12 @@ export default function TripsPage() {
   const submit = async event => {
     event.preventDefault()
     const trip = await createTrip(form)
-    navigate(`/trips/${trip.id}`)
+    if (trip) navigate(`/trips/${trip.id}`)
+  }
+
+  const createDemo = async () => {
+    const trip = await createEuropeDemo()
+    if (trip) navigate(`/trips/${trip.id}`)
   }
 
   return (
@@ -47,6 +52,7 @@ export default function TripsPage() {
             </button>
           ))}
           <button className="new-trip-card" onClick={() => setShowCreate(true)}>+ Nuevo viaje</button>
+          {backend === 'local' && <button className="new-trip-card demo-trip-card" onClick={createDemo}>✦ Crear demo Europa</button>}
         </section>
       )}
 
