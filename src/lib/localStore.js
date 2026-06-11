@@ -409,7 +409,7 @@ export const localStore = {
   addHotel(tripId, values) {
     const trips = read(TRIPS_KEY, [])
     const trip = getTrip(trips, tripId)
-    trip.hotels.push({ id:id(), city:values.city, name:values.name, address:values.address || '', check_in:values.checkIn || '', check_out:values.checkOut || '' })
+    trip.hotels.push({ id:id(), city:values.city, name:values.name, address:values.address || '', check_in:values.checkIn || '', check_out:values.checkOut || '', latitude:values.latitude ?? null, longitude:values.longitude ?? null })
     write(TRIPS_KEY, trips)
     return trip
   },

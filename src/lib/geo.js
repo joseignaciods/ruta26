@@ -34,6 +34,37 @@ export async function geocodeQuery(query) {
 
 export const geocodeCity = geocodeQuery
 
+export async function searchCities(query) {
+  const clean = query?.trim()
+  if (!clean || clean.length < 2) return []
+  const key = `ruta26_city_search_v2_${clean.toLowerCase()}`
+  const cached = localStorage.getItem(key)
+  if (cached) return JSON.parse(cached)
+  const params = new URLSearchParams({
+    limit:'8',
+    q:clean
+  })
+  const response = await fetch(`https://photon.komoot.io/api/?${params}`)
+  if (!response.ok) throw new Error('No se pudieron buscar ciudades')
+  const data = await response.json()
+  const results = (data.features || [])
+    .filter(feature => feature.properties?.type === 'city')
+    .slice(0, 5)
+    .map(feature => {
+      const properties = feature.properties || {}
+      const [longitude, latitude] = feature.geometry?.coordinates || []
+      return {
+        id:`${properties.osm_type || ''}-${properties.osm_id || properties.name}`,
+        name:[properties.name, properties.state, properties.country].filter(Boolean).join(', '),
+        city:properties.name,
+        latitude:Number(latitude),
+        longitude:Number(longitude)
+      }
+    })
+  localStorage.setItem(key, JSON.stringify(results))
+  return results
+}
+
 export async function getWeather(lat, lon, date) {
   if (!date) return null
   const params = new URLSearchParams({

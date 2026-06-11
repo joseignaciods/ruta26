@@ -1,16 +1,45 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../state/AuthContext.jsx'
 import { useTrips } from '../state/TripContext.jsx'
+import { useToast } from '../state/ToastContext.jsx'
+import { hasSupabase, supabase } from '../lib/supabase.js'
 import { formatDate } from '../lib/planner.js'
 import Skeleton from '../components/Skeleton.jsx'
 
 export default function TripsPage() {
   const { user, logout, backend } = useAuth()
-  const { trips, createTrip, createEuropeDemo, setActiveTripId, loading, offline } = useTrips()
+  const { trips, createTrip, createEuropeDemo, setActiveTripId, loading, offline, refresh } = useTrips()
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({ name:'', startDate:'', endDate:'', currency:'USD' })
+  const [invitations, setInvitations] = useState([])
+  const [inviteBusy, setInviteBusy] = useState(null)
   const navigate = useNavigate()
+  const toast = useToast()
+
+  useEffect(() => {
+    if (!hasSupabase) return
+    supabase.functions.invoke('list-invites').then(({ data, error }) => {
+      if (error || data?.error) toast(data?.error || error?.message || 'No se pudieron cargar las invitaciones')
+      else setInvitations(data?.invitations || [])
+    })
+  }, [toast])
+
+  const respondInvitation = async (invitation, reject = false) => {
+    setInviteBusy(invitation.id)
+    const { data, error } = await supabase.functions.invoke('accept-invite', { body:{ invitationId:invitation.id, reject } })
+    setInviteBusy(null)
+    if (error || data?.error) {
+      toast(data?.error || error?.message || 'No se pudo responder la invitación')
+      return
+    }
+    setInvitations(list => list.filter(item => item.id !== invitation.id))
+    if (!reject) {
+      await refresh()
+      setActiveTripId(data.tripId)
+      navigate(`/trips/${data.tripId}`)
+    }
+  }
 
   const openTrip = trip => {
     setActiveTripId(trip.id)
@@ -55,6 +84,18 @@ export default function TripsPage() {
 
       {backend === 'local' && <div className="notice">Ambiente local: los datos están en este navegador. Al conectar Supabase se sincronizarán entre usuarios.</div>}
       {offline && <div className="offline-banner">Sin conexión — mostrando última copia</div>}
+      {invitations.length > 0 && (
+        <section className="invitation-inbox">
+          <div><span className="eyebrow">INVITACIONES</span><h2>Te invitaron a colaborar</h2></div>
+          {invitations.map(invitation => (
+            <article key={invitation.id}>
+              <div><b>{(Array.isArray(invitation.trips) ? invitation.trips[0]?.name : invitation.trips?.name) || 'Viaje compartido'}</b><small>Acceso como editor</small></div>
+              <button className="ghost-btn" disabled={inviteBusy === invitation.id} onClick={() => respondInvitation(invitation, true)}>Rechazar</button>
+              <button className="primary-btn compact" disabled={inviteBusy === invitation.id} onClick={() => respondInvitation(invitation)}>Aceptar</button>
+            </article>
+          ))}
+        </section>
+      )}
 
       {loading ? <Skeleton variant="trip" /> : trips.length === 0 ? (
         <section className="empty-panel">

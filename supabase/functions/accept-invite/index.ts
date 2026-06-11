@@ -19,13 +19,19 @@ Deno.serve(async request => {
     const userClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global:{ headers:{ Authorization:authHeader } } })
     const { data:{ user } } = await userClient.auth.getUser()
     if (!user?.email) return json({ error:'Unauthorized' }, 401)
-    const { token } = await request.json()
-    if (!token) return json({ error:'Token requerido' }, 400)
+    const { token, invitationId, reject = false } = await request.json()
+    if (!token && !invitationId) return json({ error:'Invitación requerida' }, 400)
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
-    const tokenHash = await hash(token)
-    const { data:invite } = await admin.from('trip_invitations').select('*').eq('token_hash', tokenHash).eq('status', 'pending').gt('expires_at', new Date().toISOString()).maybeSingle()
+    let query = admin.from('trip_invitations').select('*').eq('status', 'pending').gt('expires_at', new Date().toISOString())
+    if (token) query = query.eq('token_hash', await hash(token))
+    else query = query.eq('id', invitationId)
+    const { data:invite } = await query.maybeSingle()
     if (!invite) return json({ error:'Invitación inválida o vencida' }, 404)
     if (invite.email.toLowerCase() !== user.email.toLowerCase()) return json({ error:'Esta invitación pertenece a otro correo' }, 403)
+    if (reject) {
+      await admin.from('trip_invitations').update({ status:'rejected' }).eq('id', invite.id)
+      return json({ ok:true, rejected:true })
+    }
     const { error } = await admin.from('trip_members').upsert({
       trip_id:invite.trip_id, user_id:user.id, role:invite.role, status:'active'
     }, { onConflict:'trip_id,user_id' })

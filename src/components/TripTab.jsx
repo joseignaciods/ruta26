@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../state/AuthContext.jsx'
 import { useTrips } from '../state/TripContext.jsx'
 import { formatDate } from '../lib/planner.js'
 import { settleUp } from '../lib/settle.js'
+import { searchCities } from '../lib/geo.js'
 
 const money = (amount, currency) => `${Number(amount || 0).toLocaleString('es-CL', { maximumFractionDigits:2 })} ${currency}`
 
@@ -26,13 +27,68 @@ export default function TripTab({ onOpenAssistant }) {
 }
 
 function Hotels({ trip }) {
-  const { addHotel, deleteHotel } = useTrips()
-  const [form, setForm] = useState({ name:'', city:'', address:'', checkIn:'', checkOut:'' })
+  const { addHotel, deleteHotel, searchPlaces } = useTrips()
+  const [form, setForm] = useState({ name:'', city:'', address:'', checkIn:'', checkOut:'', latitude:null, longitude:null })
+  const [cityResults, setCityResults] = useState([])
+  const [hotelResults, setHotelResults] = useState([])
+  const [cityBusy, setCityBusy] = useState(false)
+  const [hotelBusy, setHotelBusy] = useState(false)
+  const cityTimer = useRef(null)
+  const hotelTimer = useRef(null)
+
+  useEffect(() => () => {
+    clearTimeout(cityTimer.current)
+    clearTimeout(hotelTimer.current)
+  }, [])
 
   const submit = async event => {
     event.preventDefault()
     const result = await addHotel(form)
-    if (result !== null) setForm({ name:'', city:'', address:'', checkIn:'', checkOut:'' })
+    if (result !== null) {
+      setForm({ name:'', city:'', address:'', checkIn:'', checkOut:'', latitude:null, longitude:null })
+      setCityResults([])
+      setHotelResults([])
+    }
+  }
+
+  const changeCity = value => {
+    setForm(current => ({ ...current, city:value, name:'', address:'', latitude:null, longitude:null }))
+    setHotelResults([])
+    clearTimeout(cityTimer.current)
+    if (value.trim().length < 2) { setCityResults([]); return }
+    cityTimer.current = setTimeout(async () => {
+      setCityBusy(true)
+      try { setCityResults(await searchCities(value)) } catch { setCityResults([]) }
+      setCityBusy(false)
+    }, 350)
+  }
+
+  const chooseCity = city => {
+    setForm(current => ({ ...current, city:city.name, name:'', address:'', latitude:null, longitude:null }))
+    setCityResults([])
+  }
+
+  const changeHotel = value => {
+    setForm(current => ({ ...current, name:value, address:'', latitude:null, longitude:null }))
+    clearTimeout(hotelTimer.current)
+    if (form.city.trim().length < 2 || value.trim().length < 2) { setHotelResults([]); return }
+    hotelTimer.current = setTimeout(async () => {
+      setHotelBusy(true)
+      const result = await searchPlaces(value, form.city, 'hotels')
+      setHotelResults(result?.places || [])
+      setHotelBusy(false)
+    }, 400)
+  }
+
+  const chooseHotel = hotel => {
+    setForm(current => ({
+      ...current,
+      name:hotel.name,
+      address:hotel.address || '',
+      latitude:hotel.latitude ?? null,
+      longitude:hotel.longitude ?? null
+    }))
+    setHotelResults([])
   }
 
   return (
@@ -46,8 +102,22 @@ function Hotels({ trip }) {
       <form className="panel-card compact-form" onSubmit={submit}>
         <h3>Agregar hotel</h3>
         <div className="two-cols">
-          <label>Nombre<input required value={form.name} onChange={e => setForm({ ...form, name:e.target.value })} /></label>
-          <label>Ciudad<input required value={form.city} onChange={e => setForm({ ...form, city:e.target.value })} /></label>
+          <label className="autocomplete-field">Ciudad
+            <input required autoComplete="off" value={form.city} onChange={e => changeCity(e.target.value)} placeholder="Ej. Las Vegas" />
+            {(cityBusy || cityResults.length > 0) && <div className="autocomplete-results">
+              {cityBusy ? <span>Buscando ciudades...</span> : cityResults.map(city => <button type="button" key={city.id} onClick={() => chooseCity(city)}>{city.name}</button>)}
+            </div>}
+          </label>
+          <label className="autocomplete-field">Nombre
+            <input required autoComplete="off" disabled={!form.city.trim()} value={form.name} onChange={e => changeHotel(e.target.value)} placeholder={form.city ? 'Escribe el hotel' : 'Primero elige ciudad'} />
+            {(hotelBusy || hotelResults.length > 0) && <div className="autocomplete-results hotel-results">
+              {hotelBusy ? <span>Buscando hoteles...</span> : hotelResults.slice(0, 5).map(hotel => (
+                <button type="button" key={hotel.locationId || hotel.name} onClick={() => chooseHotel(hotel)}>
+                  <b>{hotel.name}</b><small>{[hotel.rating ? `★ ${hotel.rating}` : '', hotel.address].filter(Boolean).join(' · ')}</small>
+                </button>
+              ))}
+            </div>}
+          </label>
         </div>
         <label>Dirección<input value={form.address} onChange={e => setForm({ ...form, address:e.target.value })} /></label>
         <div className="two-cols">

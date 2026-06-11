@@ -8,6 +8,32 @@ import CategoryIcon, { categories, categoryFor, pinHtml, hotelPinHtml } from './
 const hasCoords = item => item.latitude != null && item.longitude != null
 const mapsUrl = item => `https://www.google.com/maps/search/?api=1&query=${item.latitude},${item.longitude}`
 const dayColors = ['#8b5cf6', '#0ea5a8', '#f59e0b', '#c44e92', '#2563eb', '#16a34a']
+const distanceKm = (first, second) => {
+  const toRadians = value => value * Math.PI / 180
+  const latDistance = toRadians(second[0] - first[0])
+  const lonDistance = toRadians(second[1] - first[1])
+  const lat1 = toRadians(first[0])
+  const lat2 = toRadians(second[0])
+  const value = Math.sin(latDistance / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(lonDistance / 2) ** 2
+  return 6371 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value))
+}
+const clusterActivities = activities => {
+  const clusters = []
+  for (const activity of activities.filter(hasCoords)) {
+    const point = [activity.latitude, activity.longitude]
+    let cluster = clusters.find(item => distanceKm(item.center, point) <= 1.8)
+    if (!cluster) {
+      cluster = { activities:[], center:point }
+      clusters.push(cluster)
+    }
+    cluster.activities.push(activity)
+    cluster.center = [
+      cluster.activities.reduce((sum, item) => sum + item.latitude, 0) / cluster.activities.length,
+      cluster.activities.reduce((sum, item) => sum + item.longitude, 0) / cluster.activities.length
+    ]
+  }
+  return clusters
+}
 
 export default function MapTab() {
   const { activeTrip, updateActivity, searchPlaces } = useTrips()
@@ -40,63 +66,79 @@ export default function MapTab() {
       const dayActivityCoords = selectedDay ? selectedDay.activities.filter(hasCoords) : []
 
       if (!selectedDay && isSingleCityTrip) {
-        const overviewDays = activeTrip.days.map((day, dayIndex) => ({
-          day,
-          dayIndex,
-          route:day.activities
-            .filter(hasCoords)
-            .map(activity => [activity.latitude, activity.longitude])
-        }))
-        const renderOrder = [...overviewDays.slice(1), ...overviewDays.slice(0, 1)]
-
-        renderOrder.forEach(({ day, dayIndex, route:dayRoute }) => {
-          if (!dayRoute.length) return
-          points.push(...dayRoute)
+        activeTrip.days.forEach((day, dayIndex) => {
           const color = dayColors[dayIndex % dayColors.length]
-          const isFeatured = dayIndex === 0
-          if (dayRoute.length > 1) {
-            const line = L.polyline(dayRoute, {
-              color,
-              weight:isFeatured ? 5 : 3,
-              opacity:isFeatured ? .95 : .45,
-              dashArray:isFeatured ? undefined : `${7 + dayIndex * 2} 7`
-            }).addTo(map)
-            line.bindTooltip(`Día ${day.position} · ${day.activities.length} ${day.activities.length === 1 ? 'panorama' : 'panoramas'}`, { sticky:true })
-            line.on('click', () => setSelectedDayId(day.id))
-          }
-
-          const icon = L.divIcon({
-            className:'overview-day-marker',
-            html:`<span style="--day-color:${color}">D${day.position}</span>`,
-            iconSize:[34, 30],
-            iconAnchor:[17, 15]
+          const located = day.activities.filter(hasCoords)
+          points.push(...located.map(activity => [activity.latitude, activity.longitude]))
+          located.forEach(activity => {
+            const dot = L.divIcon({
+              className:'overview-poi-dot',
+              html:`<i style="--day-color:${color}"></i>`,
+              iconSize:[12, 12],
+              iconAnchor:[6, 6]
+            })
+            L.marker([activity.latitude, activity.longitude], { icon:dot })
+              .bindTooltip(activity.name, { direction:'top' })
+              .addTo(map)
           })
-          L.marker(dayRoute[0], { icon })
-            .bindPopup(`<b>Día ${day.position}</b><br>${day.activities.length} ${day.activities.length === 1 ? 'panorama' : 'panoramas'}`)
-            .on('click', () => setSelectedDayId(day.id))
-            .addTo(map)
+
+          clusterActivities(day.activities).forEach(cluster => {
+            const icon = L.divIcon({
+              className:'overview-cluster-marker',
+              html:`<span style="--day-color:${color}">D${day.position}<b>${cluster.activities.length}</b></span>`,
+              iconSize:[52, 30],
+              iconAnchor:[26, 15]
+            })
+            const names = cluster.activities.map(activity => activity.name).join('<br>')
+            L.marker(cluster.center, { icon, zIndexOffset:500 })
+              .bindPopup(`<b>Día ${day.position} · ${cluster.activities.length} ${cluster.activities.length === 1 ? 'lugar' : 'lugares'}</b><br>${names}`)
+              .on('click', () => setSelectedDayId(day.id))
+              .addTo(map)
+          })
         })
       }
 
-      // En viajes entre ciudades se mantiene el resumen geográfico por jornada.
-      if ((!selectedDay && !isSingleCityTrip) || (selectedDay && dayActivityCoords.length === 0)) {
-        for (const day of visibleDays) {
+      if (!selectedDay && !isSingleCityTrip) {
+        const cityGroups = []
+        for (const day of activeTrip.days) {
+          const key = day.city?.trim().toLowerCase()
+          let group = cityGroups.find(item => item.key === key)
+          if (!group) {
+            group = { key, city:day.city, days:[] }
+            cityGroups.push(group)
+          }
+          group.days.push(day)
+        }
+        for (const group of cityGroups) {
           try {
-            const point = await geocodeCity(day.city)
+            const point = await geocodeCity(group.city)
             if (!alive || !point) continue
             const latLng = [point.lat, point.lon]
             points.push(latLng)
-            if (!selectedDay) route.push(latLng)
-            const dayNumber = day.position || day.day
-            const icon = L.divIcon({ className:'day-map-icon', html:`<span>${dayNumber}</span>`, iconSize:[34, 34], iconAnchor:[17, 17] })
-            L.marker(latLng, { icon }).bindPopup(`<b>${day.title}</b><br>${day.city}`).addTo(map)
+            route.push(latLng)
+            const dayLabel = group.days.length === 1 ? `D${group.days[0].position}` : `${group.days.length}d`
+            const icon = L.divIcon({ className:'day-map-icon', html:`<span>${dayLabel}</span>`, iconSize:[34, 34], iconAnchor:[17, 17] })
+            const days = group.days.map(day => `Día ${day.position}: ${day.title}`).join('<br>')
+            L.marker(latLng, { icon }).bindPopup(`<b>${group.city}</b><br>${days}`).addTo(map)
           } catch {
             // Una ciudad sin resultado no impide mostrar el resto del viaje.
           }
         }
+      } else if (selectedDay && dayActivityCoords.length === 0) {
+        try {
+          const point = await geocodeCity(selectedDay.city)
+          if (alive && point) {
+            const latLng = [point.lat, point.lon]
+            points.push(latLng)
+            const icon = L.divIcon({ className:'day-map-icon', html:`<span>${selectedDay.position}</span>`, iconSize:[34, 34], iconAnchor:[17, 17] })
+            L.marker(latLng, { icon }).bindPopup(`<b>${selectedDay.title}</b><br>${selectedDay.city}`).addTo(map)
+          }
+        } catch {
+          // Una ciudad sin resultado no impide mostrar el resto del viaje.
+        }
       }
 
-      if (selectedDay || !isSingleCityTrip) {
+      if (selectedDay) {
         for (const day of visibleDays) {
           for (const [activityIndex, activity] of day.activities.entries()) {
             if (!hasCoords(activity)) continue
@@ -117,7 +159,7 @@ export default function MapTab() {
             hotel.city.toLowerCase() === selectedDay.city.toLowerCase() ||
             (selectedDay.date && hotel.checkIn <= selectedDay.date && (!hotel.checkOut || hotel.checkOut >= selectedDay.date))
           )
-        : isSingleCityTrip ? [] : activeTrip.hotels
+        : []
       for (const hotel of visibleHotels) {
         if (!hasCoords(hotel)) continue
         const latLng = [hotel.latitude, hotel.longitude]

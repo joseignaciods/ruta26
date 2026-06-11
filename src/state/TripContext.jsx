@@ -481,7 +481,7 @@ export function TripProvider({ children }) {
               externalContent:false
             }
           }
-          const providerCategory = category === 'food' ? 'restaurants' : 'attractions'
+          const providerCategory = category === 'food' ? 'restaurants' : category === 'hotel' || category === 'hotels' ? 'hotels' : 'attractions'
           const { data, error } = await supabase.functions.invoke('travel-search', {
             body:{ query, city, category:providerCategory, currency:activeTrip?.currency, language:'es', limit:5 }
           })
@@ -561,8 +561,8 @@ export function TripProvider({ children }) {
             address:values.address || '',
             checkIn:values.checkIn || '',
             checkOut:values.checkOut || '',
-            latitude:null,
-            longitude:null
+            latitude:values.latitude ?? null,
+            longitude:values.longitude ?? null
           }
           updateActive(trip => ({ ...trip, hotels:[...trip.hotels, optimistic] }))
           const { data, error } = await supabase.from('hotels').insert({
@@ -571,7 +571,9 @@ export function TripProvider({ children }) {
             name:values.name,
             address:values.address || '',
             check_in:values.checkIn || null,
-            check_out:values.checkOut || null
+            check_out:values.checkOut || null,
+            latitude:values.latitude ?? null,
+            longitude:values.longitude ?? null
           }).select('*').single()
           if (error) { await refresh(); throw error }
           const saved = mapTrip({ ...activeTrip, hotels:[data] }).hotels[0]
