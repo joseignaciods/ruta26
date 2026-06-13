@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js'
-import { getPlaceDetails, hasTripadvisor, searchPlaces } from '../_shared/travel-places.ts'
+import { getPlaceDetails, hasTripadvisor, nearbyPlaces, searchPlaces } from '../_shared/travel-places.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -35,6 +35,20 @@ Deno.serve(async request => {
         currency:body.currency
       })
       return json({ provider:'tripadvisor', place, externalContent:true })
+    }
+
+    if (body.action === 'nearby') {
+      if (body.latitude == null || body.longitude == null) return json({ error:'latitude y longitude son requeridos' }, 400)
+      const places = await nearbyPlaces({
+        latitude:Number(body.latitude),
+        longitude:Number(body.longitude),
+        category:body.category,
+        radiusKm:body.radiusKm,
+        language:body.language,
+        currency:body.currency,
+        limit:body.limit
+      })
+      return json({ provider:'tripadvisor', places, externalContent:true })
     }
 
     if (!body.query) return json({ error:'query es requerido' }, 400)

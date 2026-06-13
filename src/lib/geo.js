@@ -34,6 +34,16 @@ export async function geocodeQuery(query) {
 
 export const geocodeCity = geocodeQuery
 
+export const distanceKm = (first, second) => {
+  const toRadians = value => value * Math.PI / 180
+  const latDistance = toRadians(second[0] - first[0])
+  const lonDistance = toRadians(second[1] - first[1])
+  const lat1 = toRadians(first[0])
+  const lat2 = toRadians(second[0])
+  const value = Math.sin(latDistance / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(lonDistance / 2) ** 2
+  return 6371 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value))
+}
+
 export async function searchCities(query) {
   const clean = query?.trim()
   if (!clean || clean.length < 2) return []

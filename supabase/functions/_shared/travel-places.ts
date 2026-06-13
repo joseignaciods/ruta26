@@ -82,20 +82,10 @@ export async function getPlaceDetails(
   return normalizePlace(data)
 }
 
-export async function searchPlaces(options: SearchOptions) {
-  const limit = Math.min(Math.max(Number(options.limit || 5), 1), 8)
-  const searchQuery = [options.query, options.city].filter(Boolean).join(' ')
-  const data = await request('/location/search', {
-    searchQuery,
-    category:options.category,
-    latLong:options.latitude != null && options.longitude != null
-      ? `${options.latitude},${options.longitude}`
-      : undefined,
-    radius:options.radiusKm,
-    radiusUnit:options.radiusKm ? 'km' : undefined,
-    language:options.language || 'es'
-  })
-  const matches = ((data.data || []) as Record<string, unknown>[]).slice(0, limit)
+const enrichMatches = async (
+  matches: Record<string, unknown>[],
+  options: { language?: string, currency?: string }
+) => {
   const details: ReturnType<typeof normalizePlace>[] = []
   for (const match of matches) {
     const locationId = String(match.location_id || '')
@@ -114,4 +104,46 @@ export async function searchPlaces(options: SearchOptions) {
     }
   }
   return details
+}
+
+export async function searchPlaces(options: SearchOptions) {
+  const limit = Math.min(Math.max(Number(options.limit || 5), 1), 8)
+  const searchQuery = [options.query, options.city].filter(Boolean).join(' ')
+  const data = await request('/location/search', {
+    searchQuery,
+    category:options.category,
+    latLong:options.latitude != null && options.longitude != null
+      ? `${options.latitude},${options.longitude}`
+      : undefined,
+    radius:options.radiusKm,
+    radiusUnit:options.radiusKm ? 'km' : undefined,
+    language:options.language || 'es'
+  })
+  const matches = ((data.data || []) as Record<string, unknown>[]).slice(0, limit)
+  return enrichMatches(matches, options)
+}
+
+type NearbyOptions = {
+  latitude: number
+  longitude: number
+  category?: PlaceCategory
+  radiusKm?: number
+  language?: string
+  currency?: string
+  limit?: number
+}
+
+// Browse por área sin texto: /location/nearby_search no exige searchQuery,
+// ideal para "buscar en esta zona" desde el mapa.
+export async function nearbyPlaces(options: NearbyOptions) {
+  const limit = Math.min(Math.max(Number(options.limit || 5), 1), 8)
+  const data = await request('/location/nearby_search', {
+    latLong:`${options.latitude},${options.longitude}`,
+    category:options.category,
+    radius:options.radiusKm ? Math.ceil(options.radiusKm) : undefined,
+    radiusUnit:options.radiusKm ? 'km' : undefined,
+    language:options.language || 'es'
+  })
+  const matches = ((data.data || []) as Record<string, unknown>[]).slice(0, limit)
+  return enrichMatches(matches, options)
 }

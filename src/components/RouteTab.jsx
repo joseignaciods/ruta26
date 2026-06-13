@@ -1,26 +1,21 @@
-import { useRef, useState } from 'react'
+import { lazy, Suspense, useRef, useState } from 'react'
 import { useTrips } from '../state/TripContext.jsx'
 import CategoryIcon, { categories, categoryFor } from './CategoryIcon.jsx'
-import { addDays, formatDate, suggestNextTime } from '../lib/planner.js'
+import { inferCategory, intentForCategory } from '../lib/intents.js'
+import { addDays, dayHotel, formatDate, suggestNextTime } from '../lib/planner.js'
+
+// Lazy para que Leaflet no entre al bundle inicial (igual que MapTab).
+const PlacePicker = lazy(() => import('./PlacePicker.jsx'))
 
 const emptyActivity = { name:'', time:'', duration:'', address:'', priceLabel:'', category:'culture', latitude:null, longitude:null, tripadvisorLocationId:'' }
 
 const isExternalId = locationId => Boolean(locationId) && !String(locationId).startsWith('local-')
 
-const inferCategory = (place, fallback) => {
-  if (categories.some(category => category.id === place.category)) return place.category
-  const labels = [place.category, ...(place.subcategories || [])].join(' ').toLowerCase()
-  if (/restaurant|comida|café|cafe|bar|food/.test(labels)) return 'food'
-  if (/parque|jardín|jardin|naturaleza|playa|nature/.test(labels)) return 'nature'
-  if (/museo|museum|historia|cultural|monumento|galería|galeria/.test(labels)) return 'culture'
-  return fallback
-}
-
 export default function RouteTab({ onAskAssistant }) {
   const {
     activeTrip, addDay, updateDay, deleteDay, reorderDays,
     addActivity, updateActivity, deleteActivity, reorderActivities,
-    discoverPlaces, searchPlaces
+    searchPlaces
   } = useTrips()
   const [showDay, setShowDay] = useState(false)
   const [dayForm, setDayForm] = useState({ city:'', title:'', date:'' })
@@ -29,11 +24,8 @@ export default function RouteTab({ onAskAssistant }) {
   const [orderingDayId, setOrderingDayId] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
   const [composerDayId, setComposerDayId] = useState(null)
-  const [ideasDayId, setIdeasDayId] = useState(null)
+  const [picker, setPicker] = useState(null)
   const [actForm, setActForm] = useState(emptyActivity)
-  const [ideas, setIdeas] = useState([])
-  const [ideasProvider, setIdeasProvider] = useState('')
-  const [ideasBusy, setIdeasBusy] = useState(false)
   const [menuActivityId, setMenuActivityId] = useState(null)
   const [acResults, setAcResults] = useState([])
   const [acOpen, setAcOpen] = useState(false)
@@ -71,22 +63,24 @@ export default function RouteTab({ onAskAssistant }) {
   const toggleDay = dayId => {
     setExpandedId(current => current === dayId ? null : dayId)
     closeComposer()
-    setIdeasDayId(null)
     setMenuActivityId(null)
     setActForm(emptyActivity)
   }
 
-  const openComposer = (day, category = 'culture') => {
+  const openComposer = (day, category = 'culture', name = '') => {
     setEditingActivityId(null)
     setComposerDayId(day.id)
-    setIdeasDayId(null)
-    setActForm({ ...emptyActivity, category, time:suggestNextTime(day.activities) })
+    setActForm({ ...emptyActivity, category, name, time:suggestNextTime(day.activities) })
+  }
+
+  const openPicker = (day, intent = 'top', view = 'list') => {
+    closeComposer()
+    setPicker({ dayId:day.id, intent, view })
   }
 
   const editActivity = (day, activity) => {
     setEditingActivityId(activity.id)
     setComposerDayId(day.id)
-    setIdeasDayId(null)
     setActForm({
       ...emptyActivity,
       name:activity.name,
@@ -123,61 +117,23 @@ export default function RouteTab({ onAskAssistant }) {
     if (other) await reorderDays(activeTrip.days[index].id, other.id)
   }
 
-  const loadIdeas = async (day, category = actForm.category) => {
-    setIdeasDayId(day.id)
-    closeComposer()
-    setActForm(current => ({ ...current, category }))
-    setIdeasBusy(true)
-    setIdeas([])
-    const result = await discoverPlaces(day.city, category)
-    setIdeasBusy(false)
-    if (result) {
-      setIdeas(result.places || [])
-      setIdeasProvider(result.provider || '')
-    }
-  }
-
-  const chooseLocalIdea = (dayId, idea) => {
-    setActForm({
-      ...emptyActivity,
-      category:idea.category || actForm.category,
-      name:idea.name || '',
-      address:idea.address || '',
-      latitude:idea.latitude ?? null,
-      longitude:idea.longitude ?? null,
-      tripadvisorLocationId:isExternalId(idea.locationId) ? idea.locationId : ''
-    })
-    setIdeasDayId(null)
-    setComposerDayId(dayId)
-  }
-
-  const addIdeaDirect = async (day, idea) => {
-    await addActivity(day.id, {
-      name:idea.name,
-      category:actForm.category,
-      time:suggestNextTime(day.activities),
-      address:idea.address || '',
-      priceLabel:'',
-      latitude:idea.latitude ?? null,
-      longitude:idea.longitude ?? null,
-      tripadvisorLocationId:isExternalId(idea.locationId) ? idea.locationId : ''
-    })
-  }
-
-  const quickPresets = day => {
-    const hotel = activeTrip.hotels.find(item => item.city.toLowerCase() === day.city.toLowerCase())
-    const presets = [
-      { key:'breakfast', label:'Desayuno', values:{ ...emptyActivity, name:'Desayuno', category:'food', time:'09:00' } },
-      { key:'lunch', label:'Almuerzo', values:{ ...emptyActivity, name:'Almuerzo', category:'food', time:'13:30' } },
-      { key:'dinner', label:'Cena', values:{ ...emptyActivity, name:'Cena', category:'food', time:'20:30' } },
-      { key:'transfer', label:'Traslado', values:{ ...emptyActivity, name:'Traslado', category:'transport', time:suggestNextTime(day.activities) } }
+  // Los chips de comida abren el selector de lugares con la intención ya elegida;
+  // Traslado abre el composer (no necesita lugar) y Check-in se agrega directo
+  // porque el hotel ya trae dirección y coordenadas.
+  const quickActions = day => {
+    const hotel = dayHotel(day, activeTrip.hotels)
+    const actions = [
+      { key:'breakfast', label:'Desayuno', run:() => openPicker(day, 'breakfast') },
+      { key:'lunch', label:'Almuerzo', run:() => openPicker(day, 'lunch') },
+      { key:'dinner', label:'Cena', run:() => openPicker(day, 'dinner') },
+      { key:'transfer', label:'Traslado', run:() => openComposer(day, 'transport', 'Traslado') }
     ]
-    if (hotel) presets.push({
+    if (hotel) actions.push({
       key:'checkin',
       label:'Check-in hotel',
-      values:{ ...emptyActivity, name:`Check-in ${hotel.name}`, category:'transport', time:'15:00', address:hotel.address || hotel.city, latitude:hotel.latitude, longitude:hotel.longitude }
+      run:() => addActivity(day.id, { ...emptyActivity, name:`Check-in ${hotel.name}`, category:'transport', time:'15:00', address:hotel.address || hotel.city, latitude:hotel.latitude, longitude:hotel.longitude })
     })
-    return presets
+    return actions
   }
 
   const onNameChange = (day, value) => {
@@ -302,19 +258,19 @@ export default function RouteTab({ onAskAssistant }) {
                 })}
               </div>
 
-              {composerDayId !== day.id && ideasDayId !== day.id && (
+              {composerDayId !== day.id && (
                 <>
                   <div className="quick-chips">
-                    {quickPresets(day).map(preset => (
-                      <button key={preset.key} onClick={() => addActivity(day.id, preset.values)}>+ {preset.label}</button>
+                    {quickActions(day).map(action => (
+                      <button key={action.key} onClick={action.run}>+ {action.label}</button>
                     ))}
                   </div>
                   <div className="route-actions">
-                    <button className="add-panorama-btn" onClick={() => openComposer(day)}>
-                      <span>+</span><div><b>Agregar panorama</b><small>Actividad, comida, paseo o traslado</small></div>
+                    <button className="add-panorama-btn" onClick={() => openPicker(day)}>
+                      <span>+</span><div><b>Agregar panorama</b><small>Lugares reales en {day.city}</small></div>
                     </button>
-                    <button className="discover-btn" onClick={() => loadIdeas(day)}>
-                      <CategoryIcon name="entertainment" /><span><b>Descubrir en {day.city}</b><small>Sugerencias para este día</small></span>
+                    <button className="discover-btn" onClick={() => openPicker(day, 'top', 'map')}>
+                      <CategoryIcon name="entertainment" /><span><b>Explorar el mapa</b><small>Descubre por zona</small></span>
                     </button>
                   </div>
                 </>
@@ -355,49 +311,10 @@ export default function RouteTab({ onAskAssistant }) {
                     <input placeholder="Dirección o barrio" value={actForm.address} onChange={e => setActForm({ ...actForm, address:e.target.value })} />
                   </label>
                   <div className="composer-footer">
-                    <button type="button" className="inspiration-link" onClick={() => loadIdeas(day, actForm.category)}>¿Necesitas ideas?</button>
+                    <button type="button" className="inspiration-link" onClick={() => openPicker(day, intentForCategory(actForm.category))}>Buscar lugares reales</button>
                     <button className="primary-btn compact">{editingActivityId ? 'Guardar cambios' : 'Agregar a la ruta'}</button>
                   </div>
                 </form>
-              )}
-
-              {ideasDayId === day.id && (
-                <div className="ideas-panel">
-                  <div className="composer-heading">
-                    <div><span>INSPIRACIÓN</span><h4>Ideas para {day.city}</h4></div>
-                    <button type="button" className="icon-btn" onClick={() => setIdeasDayId(null)}>✕</button>
-                  </div>
-                  <div className="category-picker compact">
-                    {categories.filter(category => category.id !== 'transport').map(category => (
-                      <button type="button" key={category.id} className={actForm.category === category.id ? 'active' : ''} onClick={() => loadIdeas(day, category.id)}>
-                        <CategoryIcon name={category.id} /><span>{category.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                  {ideasBusy ? <div className="ideas-loading">Buscando buenas opciones...</div> : (
-                    <div className="idea-list">
-                      {ideas.map(idea => (
-                        <article className="idea-card" key={idea.locationId || idea.name}>
-                          <div className="idea-icon"><CategoryIcon name={actForm.category} /></div>
-                          <div>
-                            <div className="idea-meta">
-                              <span>{ideasProvider === 'tripadvisor' ? 'TRIPADVISOR' : 'IDEA LOCAL'}</span>
-                              {idea.rating && <b>★ {idea.rating} {idea.reviewCount ? `· ${idea.reviewCount}` : ''}</b>}
-                            </div>
-                            <h5>{idea.name}</h5>
-                            <p>{idea.ranking || idea.description || idea.address}</p>
-                            {idea.tripadvisorUrl && <a href={idea.tripadvisorUrl} target="_blank" rel="noreferrer">Ver en Tripadvisor</a>}
-                          </div>
-                          <div className="idea-actions">
-                            <button className="idea-add" onClick={() => addIdeaDirect(day, idea)} aria-label={`Agregar ${idea.name}`}>+</button>
-                            <button className="idea-use" onClick={() => chooseLocalIdea(day.id, idea)}>Editar</button>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                  {ideasProvider === 'tripadvisor' && <p className="provider-note">Resultados consultados en vivo en Tripadvisor. Al agregar uno solo guardamos nombre, dirección y ubicación.</p>}
-                </div>
               )}
 
               <button className="danger-link" onClick={() => removeDay(day)}>Eliminar día</button>
@@ -405,6 +322,21 @@ export default function RouteTab({ onAskAssistant }) {
           )}
         </article>
       ))}
+
+      {picker && (() => {
+        const pickerDay = activeTrip.days.find(day => day.id === picker.dayId)
+        if (!pickerDay) return null
+        return (
+          <Suspense fallback={null}>
+            <PlacePicker
+              day={pickerDay}
+              initialIntent={picker.intent}
+              initialView={picker.view}
+              onClose={() => setPicker(null)}
+            />
+          </Suspense>
+        )
+      })()}
 
       {showDay && (
         <div className="modal-backdrop" onClick={() => setShowDay(false)}>

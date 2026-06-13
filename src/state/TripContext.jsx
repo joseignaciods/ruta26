@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { hasSupabase, supabase } from '../lib/supabase.js'
 import { localStore } from '../lib/localStore.js'
 import { geocodeQuery } from '../lib/geo.js'
+import { placeCacheKey, readPlaceCache, writePlaceCache } from '../lib/placeCache.js'
 import { useAuth } from './AuthContext.jsx'
 import { useToast } from './ToastContext.jsx'
 
@@ -470,58 +471,83 @@ export function TripProvider({ children }) {
         }
       }),
 
-      searchPlaces: async (query, city, category) => {
-        // Autocompletado: falla en silencio para no llenar de toasts mientras se tipea.
+      // options: { seed, latitude, longitude, radiusKm, limit } — seed indica una
+      // búsqueda de sugerencias (sin texto del usuario); en modo local devuelve
+      // todas las ideas en vez de filtrar por coincidencia literal.
+      searchPlaces: async (query, city, category, options = {}) => {
+        // Autocompletado y picker: falla en silencio para no llenar de toasts mientras se tipea.
         try {
           if (!hasSupabase) {
-            const text = query.toLowerCase()
+            const text = (query || '').toLowerCase()
+            const places = localStore.placeSuggestions(city, category)
             return {
               provider:'Ruta26 local',
-              places:localStore.placeSuggestions(city, category).filter(place => place.name.toLowerCase().includes(text)),
+              places:options.seed ? places : places.filter(place => place.name.toLowerCase().includes(text)),
               externalContent:false
             }
           }
           const providerCategory = category === 'food' ? 'restaurants' : category === 'hotel' || category === 'hotels' ? 'hotels' : 'attractions'
+          const hasGeo = options.latitude != null && options.longitude != null
+          const geoKey = hasGeo ? `${options.latitude.toFixed(2)},${options.longitude.toFixed(2)},${Math.round(options.radiusKm || 0)}` : ''
+          const limit = options.limit || 5
+          const cacheKey = placeCacheKey(['search', query, city, providerCategory, geoKey, limit])
+          const cached = readPlaceCache(cacheKey)
+          if (cached) return cached
           const { data, error } = await supabase.functions.invoke('travel-search', {
-            body:{ query, city, category:providerCategory, currency:activeTrip?.currency, language:'es', limit:5 }
+            body:{
+              query,
+              city,
+              category:providerCategory,
+              currency:activeTrip?.currency,
+              language:'es',
+              limit,
+              latitude:hasGeo ? options.latitude : undefined,
+              longitude:hasGeo ? options.longitude : undefined,
+              radiusKm:hasGeo ? options.radiusKm : undefined
+            }
           })
           if (error || data?.error) return null
+          writePlaceCache(cacheKey, data)
           return data
         } catch {
           return null
         }
       },
 
-      discoverPlaces: (city, category) => run(async () => {
-        if (!hasSupabase) {
-          return {
-            provider:'Ruta26 local',
-            places:localStore.placeSuggestions(city, category),
-            externalContent:false
+      // Browse por área sin texto (mapa del picker). fallbackQuery cubre el caso
+      // de una edge function desplegada sin la acción 'nearby' todavía.
+      searchNearbyPlaces: async ({ latitude, longitude, radiusKm, category, city, fallbackQuery, limit = 8 }) => {
+        try {
+          if (!hasSupabase) {
+            return {
+              provider:'Ruta26 local',
+              places:localStore.placeSuggestions(city, category),
+              externalContent:false
+            }
           }
-        }
-        const providerCategory = category === 'food' ? 'restaurants' : 'attractions'
-        const queries = {
-          culture:'museos, historia y lugares culturales',
-          food:'restaurantes y comida local',
-          nature:'parques, jardines y naturaleza',
-          entertainment:'tours, espectáculos y experiencias',
-          transport:'estaciones y transporte'
-        }
-        const { data, error } = await supabase.functions.invoke('travel-search', {
-          body:{
-            query:queries[category] || 'lugares recomendados',
-            city,
-            category:providerCategory,
-            currency:activeTrip.currency,
-            language:'es',
-            limit:5
+          const providerCategory = category === 'food' ? 'restaurants' : 'attractions'
+          const cacheKey = placeCacheKey(['nearby', providerCategory, `${latitude.toFixed(2)},${longitude.toFixed(2)}`, Math.round(radiusKm || 0), limit])
+          const cached = readPlaceCache(cacheKey)
+          if (cached) return cached
+          let { data, error } = await supabase.functions.invoke('travel-search', {
+            body:{ action:'nearby', latitude, longitude, radiusKm, category:providerCategory, currency:activeTrip?.currency, language:'es', limit }
+          })
+          // Solo reintentamos con búsqueda por texto si la edge function aún no
+          // soporta 'nearby' (responde "query es requerido"). Nunca ante cuota
+          // agotada (429) ni otros errores: sería doble gasto de cuota.
+          const needsFallback = fallbackQuery && !data?.quotaExceeded && (data?.error === 'query es requerido')
+          if (needsFallback) {
+            ;({ data, error } = await supabase.functions.invoke('travel-search', {
+              body:{ query:fallbackQuery, category:providerCategory, latitude, longitude, radiusKm, currency:activeTrip?.currency, language:'es', limit }
+            }))
           }
-        })
-        if (error) throw error
-        if (data?.error) throw new Error(data.error)
-        return data
-      }),
+          if (error || data?.error) return null
+          writePlaceCache(cacheKey, data)
+          return data
+        } catch {
+          return null
+        }
+      },
 
       deleteActivity: (dayId, activityId) => run(async () => {
         if (!activeTrip) return

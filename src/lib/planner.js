@@ -1,3 +1,28 @@
+import { geocodeCity } from './geo.js'
+
+const located = item => item?.latitude != null && item?.longitude != null
+
+export function dayHotel(day, hotels = []) {
+  return hotels.find(hotel =>
+    hotel.city?.toLowerCase() === day.city?.toLowerCase() ||
+    (day.date && hotel.checkIn && hotel.checkIn <= day.date && (!hotel.checkOut || hotel.checkOut >= day.date))
+  ) || null
+}
+
+// Punto de referencia del día para buscar lugares cercanos: hotel, primer
+// panorama ubicado o, como último recurso, el centro geocodificado de la ciudad.
+export async function dayAnchor(day, hotels = []) {
+  const hotel = dayHotel(day, hotels)
+  if (located(hotel)) return { latitude:hotel.latitude, longitude:hotel.longitude, label:hotel.name }
+  const activity = (day.activities || []).find(located)
+  if (activity) return { latitude:activity.latitude, longitude:activity.longitude, label:activity.name }
+  try {
+    const point = await geocodeCity(day.city)
+    if (point) return { latitude:point.lat, longitude:point.lon, label:`el centro de ${day.city}` }
+  } catch { /* sin ancla igual se puede buscar por texto */ }
+  return null
+}
+
 export function suggestNextTime(activities = []) {
   const timed = activities.filter(item => item.time).sort((a, b) => a.time.localeCompare(b.time))
   if (!timed.length) return '09:30'
