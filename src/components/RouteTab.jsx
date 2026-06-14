@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useTrips } from '../state/TripContext.jsx'
 import CategoryIcon, { categories, categoryFor } from './CategoryIcon.jsx'
 import { inferCategory, intentForCategory } from '../lib/intents.js'
@@ -11,7 +11,7 @@ const emptyActivity = { name:'', time:'', duration:'', address:'', priceLabel:''
 
 const isExternalId = locationId => Boolean(locationId) && !String(locationId).startsWith('local-')
 
-export default function RouteTab({ onAskAssistant }) {
+export default function RouteTab({ onAskAssistant, onPickerChange }) {
   const {
     activeTrip, addDay, updateDay, deleteDay, reorderDays,
     addActivity, updateActivity, deleteActivity, reorderActivities,
@@ -30,6 +30,12 @@ export default function RouteTab({ onAskAssistant }) {
   const [acResults, setAcResults] = useState([])
   const [acOpen, setAcOpen] = useState(false)
   const acTimer = useRef(null)
+
+  // Avisa al workspace para que oculte nav + FAB mientras el picker está abierto.
+  useEffect(() => {
+    onPickerChange?.(Boolean(picker))
+    return () => onPickerChange?.(false)
+  }, [picker, onPickerChange])
 
   const createDay = async event => {
     event.preventDefault()

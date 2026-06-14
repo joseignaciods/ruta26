@@ -409,6 +409,7 @@ export function TripProvider({ children }) {
           if (error) { await refresh(); throw error }
           updateActive(trip => ({ ...trip, days:trip.days.map(item => item.id === dayId ? { ...item, activities:item.activities.map(activity => activity.id === temporaryId ? mapActivity(data) : activity).sort(byPosition) } : item) }))
         }
+        toast('Agregado a la ruta', 'success')
       }),
 
       updateActivity: (dayId, activityId, fields) => run(async () => {

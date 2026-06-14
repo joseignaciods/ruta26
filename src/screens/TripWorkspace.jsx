@@ -41,6 +41,7 @@ export default function TripWorkspace() {
   const { trips, activeTrip, setActiveTripId, loading, offline } = useTrips()
   const [tab, setTab] = useState('route')
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [assistantPrompt, setAssistantPrompt] = useState('')
   const initializedTrip = useRef(null)
 
@@ -61,7 +62,7 @@ export default function TripWorkspace() {
   if (!activeTrip) return <div className="center-page">Preparando viaje...</div>
 
   return (
-    <div className={`workspace ${assistantOpen ? 'assistant-open' : ''}`}>
+    <div className={`workspace ${assistantOpen ? 'assistant-open' : ''} ${pickerOpen ? 'picker-open' : ''}`}>
       {offline && (
         <div className="offline-banner" role="status">
           Estás sin conexión. Mostramos la última versión guardada y sincronizaremos al volver.
@@ -74,7 +75,7 @@ export default function TripWorkspace() {
       </header>
 
       <main className="workspace-content">
-        {tab === 'route' && <RouteTab onAskAssistant={openAssistant} />}
+        {tab === 'route' && <RouteTab onAskAssistant={openAssistant} onPickerChange={setPickerOpen} />}
         {tab === 'today' && <TodayTab onOpenAssistant={openAssistant} />}
         {tab === 'map' && <Suspense fallback={<div className="center-page">Cargando mapa...</div>}><MapTab /></Suspense>}
         {tab === 'trip' && <TripTab onOpenAssistant={openAssistant} />}

@@ -10,6 +10,7 @@ import { distanceKm } from '../lib/geo.js'
 const isExternalId = locationId => Boolean(locationId) && !String(locationId).startsWith('local-')
 const hasCoords = place => place.latitude != null && place.longitude != null
 const placeKey = place => place.locationId || place.tripadvisorUrl || place.name
+const fmtDistance = km => km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`
 
 export default function PlacePicker({ day, initialIntent = 'top', initialView = 'list', onClose }) {
   const { activeTrip, addActivity, searchPlaces, searchNearbyPlaces } = useTrips()
@@ -61,6 +62,25 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       viewport?.removeEventListener('scroll', syncViewport)
       window.removeEventListener('orientationchange', syncViewport)
     }
+  }, [])
+
+  // Modal real: foco al panel, Escape cierra, y el botón atrás cierra el picker
+  // (no el viaje). Empuja un estado de historial solo si aún no hay uno nuestro,
+  // para ser estable bajo StrictMode (doble montaje) y no acumular entradas.
+  useEffect(() => {
+    const previousFocus = document.activeElement
+    panelRef.current?.focus()
+    const onKey = event => { if (event.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    if (!window.history.state?.pickerOpen) window.history.pushState({ pickerOpen: true }, '')
+    const onPop = () => onClose()
+    window.addEventListener('popstate', onPop)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('popstate', onPop)
+      if (previousFocus instanceof HTMLElement) previousFocus.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const runSearch = async ({ text = '', seed = false, area = null }) => {
@@ -135,6 +155,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       attribution:'&copy; OpenStreetMap contributors'
     }).addTo(map)
     markersRef.current = L.layerGroup().addTo(map)
+    lastProgrammaticMove.current = Date.now()
     map.setView(anchor ? [anchor.latitude, anchor.longitude] : [20, 0], anchor ? 13 : 2)
     map.on('moveend', () => {
       if (Date.now() - lastProgrammaticMove.current < 800) return
@@ -184,12 +205,12 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   }
 
   const activityValues = (place, overrides = {}) => ({
-    name:place ? place.name : (query.trim() || intent.label),
+    name:place ? place.name : query.trim(),
     category:place ? inferCategory(place, intent.category) : intent.category,
     time:intent.defaultTime || suggestNextTime(day.activities),
     duration:'',
     address:place?.address || '',
-    priceLabel:'',
+    priceLabel:place?.priceLevel || '',
     latitude:place?.latitude ?? null,
     longitude:place?.longitude ?? null,
     tripadvisorLocationId:place && isExternalId(place.locationId) ? place.locationId : '',
@@ -203,7 +224,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
 
   const openConfirm = place => {
     const values = activityValues(place)
-    setConfirm({ place, name:values.name, time:values.time, duration:'', priceLabel:'' })
+    setConfirm({ place, name:values.name, time:values.time, duration:'', priceLabel:values.priceLabel })
   }
 
   const submitConfirm = async event => {
@@ -220,11 +241,11 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const located = places.filter(hasCoords)
 
   return (
-    <div className="place-picker" ref={panelRef}>
+    <div className="place-picker" ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="picker-title" tabIndex={-1}>
       <header className="picker-header">
         <div>
           <span>DÍA {day.position} · {day.city.toUpperCase()}</span>
-          <h3>{intent.title}</h3>
+          <h3 id="picker-title">{intent.title}</h3>
         </div>
         <button type="button" className="ghost-btn" onClick={onClose}>Cerrar</button>
       </header>
@@ -236,7 +257,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
               type="button"
               key={item.key}
               className={intentKey === item.key ? 'active' : ''}
-              onClick={() => setIntentKey(item.key)}
+              onClick={() => { setIntentKey(item.key); setQuery('') }}
             >
               <CategoryIcon name={item.icon} /><span>{item.label}</span>
             </button>
@@ -261,26 +282,29 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       </div>
 
       {view === 'list' ? (
-        <div className="picker-results">
-          {busy && <div className="ideas-loading">Buscando buenas opciones…</div>}
-          {!busy && resultsLabel && <p className="picker-results-label">{resultsLabel}</p>}
-          {!busy && places.map(place => {
+        <div className={`picker-results ${busy ? 'is-busy' : ''}`} aria-live="polite" aria-busy={busy}>
+          {busy && !places.length && <div className="ideas-loading">Buscando buenas opciones…</div>}
+          {resultsLabel && (places.length > 0 || !busy) && <p className="picker-results-label">{resultsLabel}</p>}
+          {places.map(place => {
             const added = addedKeys.includes(placeKey(place))
+            const distance = anchor && hasCoords(place)
+              ? distanceKm([anchor.latitude, anchor.longitude], [place.latitude, place.longitude])
+              : null
             return (
               <article className="chat-place-card" key={placeKey(place)}>
                 <div className="chat-place-heading">
                   <div>
-                    <small>{place.category || categoryFor(intent.category).label}</small>
+                    <small>{categoryFor(inferCategory(place, intent.category)).label}</small>
                     <h4>{place.name}</h4>
                   </div>
                   <div className="chat-place-badges">
-                    {place.rating != null && place.rating !== 0 && <span>★ {place.rating}</span>}
+                    {place.rating != null && place.rating !== 0 && <span aria-label={`Calificación ${Number(place.rating).toFixed(1)} de 5`}>★ {Number(place.rating).toFixed(1)}/5</span>}
                     {place.priceLevel && <b title="Rango de precio informado por Tripadvisor">{place.priceLevel}</b>}
                   </div>
                 </div>
-                {(place.ranking || place.reviewCount) && (
+                {(place.ranking || place.reviewCount || distance != null) && (
                   <p className="chat-place-meta">
-                    {[place.ranking, place.reviewCount ? `${place.reviewCount} opiniones` : ''].filter(Boolean).join(' · ')}
+                    {[place.ranking, place.reviewCount ? `${place.reviewCount} opiniones` : '', distance != null ? `a ${fmtDistance(distance)}` : ''].filter(Boolean).join(' · ')}
                   </p>
                 )}
                 {place.address && <p className="chat-place-address">{place.address}</p>}
@@ -337,7 +361,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
                     <b>{index + 1}</b>
                     <div>
                       <h5>{place.name}</h5>
-                      <small>{[place.rating ? `★ ${place.rating}` : '', place.priceLevel].filter(Boolean).join(' · ') || place.address}</small>
+                      <small>{[place.rating ? `★ ${Number(place.rating).toFixed(1)}/5` : '', place.priceLevel].filter(Boolean).join(' · ') || place.address}</small>
                     </div>
                     <button
                       type="button"
