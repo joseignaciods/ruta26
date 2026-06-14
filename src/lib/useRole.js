@@ -5,23 +5,24 @@ import { useAuth } from '../state/AuthContext.jsx'
 export function useRole() {
   const { user } = useAuth()
   const [role, setRole] = useState(null)
-  const [loading, setLoading] = useState(hasSupabase)
+  const [resolvedUserId, setResolvedUserId] = useState(null)
   useEffect(() => {
     let active = true
     if (!hasSupabase || !user) {
       setRole(null)
-      setLoading(false)
+      setResolvedUserId(null)
       return
     }
     supabase.from('user_roles').select('role').eq('user_id', user.id).maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
         if (active) {
-          setRole(data?.role || null)
-          setLoading(false)
+          setRole(error ? null : data?.role || null)
+          setResolvedUserId(user.id)
         }
       })
     return () => { active = false }
   }, [user])
+  const loading = hasSupabase && Boolean(user) && resolvedUserId !== user.id
   return {
     role,
     loading,

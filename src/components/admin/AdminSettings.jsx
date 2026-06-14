@@ -40,8 +40,18 @@ export default function AdminSettings() {
         <label>Búsquedas por usuario<input type="number" min="0" value={form.ta_monthly_limit_default} onChange={event => setForm({ ...form, ta_monthly_limit_default:event.target.value })} /></label>
       </div>
       <label>Tope global Tripadvisor<input type="number" min="0" value={form.ta_global_monthly_cap} onChange={event => setForm({ ...form, ta_global_monthly_cap:event.target.value })} /></label>
-      <label className="admin-toggle"><input type="checkbox" checked={form.ai_enabled} onChange={event => setForm({ ...form, ai_enabled:event.target.checked })} /> IA habilitada</label>
-      <label className="admin-toggle"><input type="checkbox" checked={form.ta_enabled} onChange={event => setForm({ ...form, ta_enabled:event.target.checked })} /> Búsquedas habilitadas</label>
+      <div className="admin-switch-list">
+        <label className="admin-switch">
+          <span><b>Asistente IA</b><small>Permite nuevas consultas al asistente para todos los usuarios.</small></span>
+          <input type="checkbox" checked={form.ai_enabled} onChange={event => setForm({ ...form, ai_enabled:event.target.checked })} />
+          <i aria-hidden="true" />
+        </label>
+        <label className="admin-switch">
+          <span><b>Búsquedas de lugares</b><small>Permite consultas externas a Tripadvisor para todos los usuarios.</small></span>
+          <input type="checkbox" checked={form.ta_enabled} onChange={event => setForm({ ...form, ta_enabled:event.target.checked })} />
+          <i aria-hidden="true" />
+        </label>
+      </div>
       <button className="primary-btn compact">Guardar ajustes</button>
     </form>
   )
