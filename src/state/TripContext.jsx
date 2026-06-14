@@ -31,6 +31,10 @@ const mapActivity = row => ({
   done:!!row.done
 })
 
+// Categoría de gasto para un panorama/hotel enlazado.
+const expenseCategoryFor = category =>
+  category === 'food' ? 'food' : category === 'transport' ? 'transport' : 'activity'
+
 const mapTrip = (row, profiles = {}) => ({
   id:row.id,
   name:row.name,
@@ -62,7 +66,9 @@ const mapTrip = (row, profiles = {}) => ({
     checkIn:hotel.check_in ?? hotel.checkIn ?? '',
     checkOut:hotel.check_out ?? hotel.checkOut ?? '',
     latitude:hotel.latitude ?? null,
-    longitude:hotel.longitude ?? null
+    longitude:hotel.longitude ?? null,
+    cost:hotel.cost ?? null,
+    costCurrency:hotel.cost_currency ?? hotel.costCurrency ?? ''
   })),
   expenses:(row.expenses || []).map(expense => ({
     id:expense.id,
@@ -71,7 +77,11 @@ const mapTrip = (row, profiles = {}) => ({
     currency:expense.currency,
     category:expense.category || 'activity',
     date:expense.date || '',
-    paidBy:expense.paid_by ?? expense.paidBy ?? null
+    paidBy:expense.paid_by ?? expense.paidBy ?? null,
+    activityId:expense.activity_id ?? expense.activityId ?? null,
+    hotelId:expense.hotel_id ?? expense.hotelId ?? null,
+    isSettlement:!!(expense.is_settlement ?? expense.isSettlement),
+    split:expense.split || {}
   })),
   packingItems:(row.packing_items || row.packingItems || []).map(item => ({ id:item.id, item:item.item, packed:!!item.packed }))
 })
@@ -370,9 +380,23 @@ export function TripProvider({ children }) {
             if (point) { latitude = point.lat; longitude = point.lon }
           } catch { /* mejor sin coordenadas que bloquear el alta */ }
         }
+        const expense = values.expense && Number(values.expense.amount) > 0 ? values.expense : null
+        const expenseAmount = expense ? Number(expense.amount) : (Number(values.expenseAmount) || 0)
+        const expenseCurrency = expense ? (expense.currency || activeTrip.currency) : (values.expenseCurrency || '')
         if (!hasSupabase) {
-          const trip = mapTrip(localStore.addActivity(activeTrip.id, dayId, { ...values, latitude, longitude }))
-          updateActive(() => trip)
+          const tripData = localStore.addActivity(activeTrip.id, dayId, { ...values, latitude, longitude, expenseAmount, expenseCurrency })
+          const trip = mapTrip(tripData)
+          const created = trip.days.find(item => item.id === dayId)?.activities.slice(-1)[0]
+          if (expense && created) {
+            const linked = mapTrip(localStore.addExpense(activeTrip.id, {
+              description:values.name, amount:Number(expense.amount), currency:expenseCurrency,
+              category:expenseCategoryFor(values.category), date:day?.date || '',
+              paidBy:expense.paidBy || user.id, split:expense.split || {}, activityId:created.id
+            }))
+            updateActive(() => linked)
+          } else {
+            updateActive(() => trip)
+          }
         }
         else {
           const temporaryId = optimisticId()
@@ -386,6 +410,8 @@ export function TripProvider({ children }) {
             address:values.address || '',
             category:values.category || 'entertainment',
             priceLabel:values.priceLabel || '',
+            expenseAmount,
+            expenseCurrency,
             latitude,
             longitude,
             tripadvisorLocationId:values.tripadvisorLocationId || '',
@@ -402,12 +428,25 @@ export function TripProvider({ children }) {
             address:values.address || '',
             category:values.category || 'entertainment',
             price_label:values.priceLabel || '',
+            expense_amount:expenseAmount || null,
+            expense_currency:expenseCurrency,
             latitude,
             longitude,
             tripadvisor_location_id:values.tripadvisorLocationId || null
           }).select('*').single()
           if (error) { await refresh(); throw error }
           updateActive(trip => ({ ...trip, days:trip.days.map(item => item.id === dayId ? { ...item, activities:item.activities.map(activity => activity.id === temporaryId ? mapActivity(data) : activity).sort(byPosition) } : item) }))
+          if (expense) {
+            const { data:expData, error:expError } = await supabase.from('expenses').insert({
+              trip_id:activeTrip.id, description:values.name, amount:Number(expense.amount),
+              currency:expenseCurrency, category:expenseCategoryFor(values.category), date:day?.date || null,
+              paid_by:expense.paidBy || user.id, split:expense.split || {}, activity_id:data.id
+            }).select('*').single()
+            if (!expError && expData) {
+              const saved = mapTrip({ ...activeTrip, expenses:[expData] }).expenses[0]
+              updateActive(trip => ({ ...trip, expenses:[...trip.expenses, saved] }))
+            }
+          }
         }
         toast('Agregado a la ruta', 'success')
       }),
@@ -424,6 +463,8 @@ export function TripProvider({ children }) {
           if (fields.address !== undefined) payload.address = fields.address || ''
           if (fields.category !== undefined) payload.category = fields.category
           if (fields.priceLabel !== undefined) payload.price_label = fields.priceLabel || ''
+          if (fields.expenseAmount !== undefined) payload.expense_amount = Number(fields.expenseAmount) || null
+          if (fields.expenseCurrency !== undefined) payload.expense_currency = fields.expenseCurrency || ''
           if (fields.latitude !== undefined) payload.latitude = fields.latitude
           if (fields.longitude !== undefined) payload.longitude = fields.longitude
           if (fields.tripadvisorLocationId !== undefined) payload.tripadvisor_location_id = fields.tripadvisorLocationId || null
@@ -575,9 +616,22 @@ export function TripProvider({ children }) {
 
       addHotel: values => run(async () => {
         if (!activeTrip) return
+        const cost = Number(values.cost) || null
+        const costCurrency = values.costCurrency || (cost ? activeTrip.currency : '')
+        const expense = values.expense && cost ? values.expense : null
         if (!hasSupabase) {
-          const trip = mapTrip(localStore.addHotel(activeTrip.id, values))
-          updateActive(() => trip)
+          const tripData = localStore.addHotel(activeTrip.id, { ...values, cost, costCurrency })
+          const trip = mapTrip(tripData)
+          const created = trip.hotels.slice(-1)[0]
+          if (expense && created) {
+            const linked = mapTrip(localStore.addExpense(activeTrip.id, {
+              description:values.name, amount:cost, currency:costCurrency, category:'hotel',
+              date:values.checkIn || '', paidBy:expense.paidBy || user.id, split:expense.split || {}, hotelId:created.id
+            }))
+            updateActive(() => linked)
+          } else {
+            updateActive(() => trip)
+          }
         }
         else {
           const temporaryId = optimisticId()
@@ -589,7 +643,9 @@ export function TripProvider({ children }) {
             checkIn:values.checkIn || '',
             checkOut:values.checkOut || '',
             latitude:values.latitude ?? null,
-            longitude:values.longitude ?? null
+            longitude:values.longitude ?? null,
+            cost,
+            costCurrency
           }
           updateActive(trip => ({ ...trip, hotels:[...trip.hotels, optimistic] }))
           const { data, error } = await supabase.from('hotels').insert({
@@ -600,11 +656,24 @@ export function TripProvider({ children }) {
             check_in:values.checkIn || null,
             check_out:values.checkOut || null,
             latitude:values.latitude ?? null,
-            longitude:values.longitude ?? null
+            longitude:values.longitude ?? null,
+            cost,
+            cost_currency:costCurrency
           }).select('*').single()
           if (error) { await refresh(); throw error }
           const saved = mapTrip({ ...activeTrip, hotels:[data] }).hotels[0]
           updateActive(trip => ({ ...trip, hotels:trip.hotels.map(hotel => hotel.id === temporaryId ? saved : hotel) }))
+          if (expense) {
+            const { data:expData, error:expError } = await supabase.from('expenses').insert({
+              trip_id:activeTrip.id, description:values.name, amount:cost, currency:costCurrency,
+              category:'hotel', date:values.checkIn || null, paid_by:expense.paidBy || user.id,
+              split:expense.split || {}, hotel_id:data.id
+            }).select('*').single()
+            if (!expError && expData) {
+              const savedExp = mapTrip({ ...activeTrip, expenses:[expData] }).expenses[0]
+              updateActive(trip => ({ ...trip, expenses:[...trip.expenses, savedExp] }))
+            }
+          }
         }
       }),
 
@@ -627,7 +696,7 @@ export function TripProvider({ children }) {
 
       addExpense: values => run(async () => {
         if (!activeTrip) return
-        const expenseValues = { ...values, paidBy:values.paidBy || user.id }
+        const expenseValues = { ...values, paidBy:values.paidBy || user.id, split:values.split || {} }
         if (!hasSupabase) {
           const trip = mapTrip(localStore.addExpense(activeTrip.id, expenseValues))
           updateActive(() => trip)
@@ -641,7 +710,11 @@ export function TripProvider({ children }) {
             currency:values.currency || activeTrip.currency,
             category:values.category || 'activity',
             date:values.date || '',
-            paidBy:expenseValues.paidBy
+            paidBy:expenseValues.paidBy,
+            activityId:values.activityId || null,
+            hotelId:values.hotelId || null,
+            isSettlement:!!values.isSettlement,
+            split:expenseValues.split
           }
           updateActive(trip => ({ ...trip, expenses:[...trip.expenses, optimistic] }))
           const { data, error } = await supabase.from('expenses').insert({
@@ -651,7 +724,11 @@ export function TripProvider({ children }) {
             currency:values.currency || activeTrip.currency,
             category:values.category || 'activity',
             date:values.date || null,
-            paid_by:expenseValues.paidBy
+            paid_by:expenseValues.paidBy,
+            activity_id:values.activityId || null,
+            hotel_id:values.hotelId || null,
+            is_settlement:!!values.isSettlement,
+            split:expenseValues.split
           }).select('*').single()
           if (error) { await refresh(); throw error }
           const saved = mapTrip({ ...activeTrip, expenses:[data] }).expenses[0]
@@ -671,7 +748,7 @@ export function TripProvider({ children }) {
         toast('Eliminado', { type:'success', action:{ label:'Deshacer', onClick:async () => {
           if (!removed) return
           if (!hasSupabase) localStore.restoreExpense(activeTrip.id, removed)
-          else await supabase.from('expenses').insert({ trip_id:activeTrip.id, description:removed.description, amount:removed.amount, currency:removed.currency, category:removed.category, date:removed.date || null, paid_by:removed.paidBy })
+          else await supabase.from('expenses').insert({ trip_id:activeTrip.id, description:removed.description, amount:removed.amount, currency:removed.currency, category:removed.category, date:removed.date || null, paid_by:removed.paidBy, activity_id:removed.activityId || null, hotel_id:removed.hotelId || null, is_settlement:!!removed.isSettlement, split:removed.split || {} })
           await refresh()
         } } })
       }),

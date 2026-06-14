@@ -238,7 +238,7 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                       <button type="button" className="activity-copy" onClick={() => editActivity(day, activity)}>
                         <span>{[activity.time || 'Sin hora', activity.duration, category.label].filter(Boolean).join(' · ')}</span>
                         <h4>{activity.name}</h4>
-                        {(activity.address || activity.priceLabel) && <small>{[activity.address, activity.priceLabel].filter(Boolean).join(' · ')}</small>}
+                        {(activity.address || activity.priceLabel || activity.expenseAmount > 0) && <small>{[activity.address, activity.expenseAmount > 0 ? `💰 ${activity.expenseAmount} ${activity.expenseCurrency}` : activity.priceLabel].filter(Boolean).join(' · ')}</small>}
                       </button>
                       {orderingDayId === day.id && (
                         <div className="order-controls">

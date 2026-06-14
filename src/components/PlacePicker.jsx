@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useTrips } from '../state/TripContext.jsx'
+import { useAuth } from '../state/AuthContext.jsx'
 import CategoryIcon, { categoryFor, pinHtml } from './CategoryIcon.jsx'
 import { inferCategory, intentFor, intents } from '../lib/intents.js'
 import { dayAnchor, suggestNextTime } from '../lib/planner.js'
 import { distanceKm } from '../lib/geo.js'
+import { resolveSplit } from '../lib/computeBalances.js'
+import SplitEditor from './SplitEditor.jsx'
 
 const isExternalId = locationId => Boolean(locationId) && !String(locationId).startsWith('local-')
 const hasCoords = place => place.latitude != null && place.longitude != null
@@ -14,6 +17,9 @@ const fmtDistance = km => km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(
 
 export default function PlacePicker({ day, initialIntent = 'top', initialView = 'list', onClose }) {
   const { activeTrip, addActivity, searchPlaces, searchNearbyPlaces } = useTrips()
+  const { user } = useAuth()
+  const expenseMembers = (activeTrip.members || []).filter(member => member.status === 'active')
+  const [splitOpen, setSplitOpen] = useState(false)
   const [intentKey, setIntentKey] = useState(initialIntent)
   const [query, setQuery] = useState('')
   const [places, setPlaces] = useState([])
@@ -224,17 +230,18 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
 
   const openConfirm = place => {
     const values = activityValues(place)
-    setConfirm({ place, name:values.name, time:values.time, duration:'', priceLabel:values.priceLabel })
+    setConfirm({ place, name:values.name, time:values.time, duration:'', priceLabel:values.priceLabel, expenseAmount:'', expenseCurrency:activeTrip.currency || 'USD', expensePaidBy:user.id, expenseSplit:{} })
   }
 
   const submitConfirm = async event => {
     event.preventDefault()
-    const result = await addActivity(day.id, activityValues(confirm.place, {
-      name:confirm.name,
-      time:confirm.time,
-      duration:confirm.duration,
-      priceLabel:confirm.priceLabel
-    }))
+    const amount = Number(confirm.expenseAmount) || 0
+    const overrides = { name:confirm.name, time:confirm.time, duration:confirm.duration, priceLabel:confirm.priceLabel }
+    if (amount > 0) {
+      const activeIds = expenseMembers.map(member => member.userId)
+      overrides.expense = { amount, currency:confirm.expenseCurrency, paidBy:confirm.expensePaidBy, split:resolveSplit(confirm.expenseSplit, amount, activeIds) }
+    }
+    const result = await addActivity(day.id, activityValues(confirm.place, overrides))
     if (result !== null) onClose()
   }
 
@@ -414,12 +421,39 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
             <label>Precio estimado
               <input placeholder={`Ej. 20 ${activeTrip.currency || 'USD'}`} value={confirm.priceLabel} onChange={event => setConfirm({ ...confirm, priceLabel:event.target.value })} />
             </label>
+            <div className="picker-expense">
+              <div className="composer-grid">
+                <label>Registrar gasto <span className="optional-label">opcional</span>
+                  <input type="number" min="0" step="0.01" inputMode="decimal" placeholder="¿Cuánto costó?" value={confirm.expenseAmount} onChange={event => setConfirm({ ...confirm, expenseAmount:event.target.value })} />
+                </label>
+                <label>Moneda
+                  <input value={confirm.expenseCurrency} onChange={event => setConfirm({ ...confirm, expenseCurrency:event.target.value.toUpperCase() })} />
+                </label>
+              </div>
+              {Number(confirm.expenseAmount) > 0 && expenseMembers.length > 1 && (
+                <button type="button" className="split-summary-btn" onClick={() => setSplitOpen(true)}>
+                  Pagó {(expenseMembers.find(member => member.userId === confirm.expensePaidBy)?.name) || (expenseMembers.find(member => member.userId === confirm.expensePaidBy)?.email) || 'tú'} · {confirm.expenseSplit?.members?.length ? `entre ${confirm.expenseSplit.members.length}` : 'igual entre todos'} ✎
+                </button>
+              )}
+            </div>
             <div className="modal-actions">
               <button type="button" className="ghost-btn" onClick={() => setConfirm(null)}>Volver</button>
               <button className="primary-btn compact">Agregar a la ruta</button>
             </div>
           </form>
         </div>
+      )}
+
+      {splitOpen && confirm && (
+        <SplitEditor
+          amount={Number(confirm.expenseAmount) || 0}
+          currency={confirm.expenseCurrency}
+          members={expenseMembers}
+          currentUserId={user.id}
+          value={{ paidBy:confirm.expensePaidBy, split:confirm.expenseSplit }}
+          onCancel={() => setSplitOpen(false)}
+          onSave={({ paidBy, split }) => { setConfirm(current => ({ ...current, expensePaidBy:paidBy, expenseSplit:split })); setSplitOpen(false) }}
+        />
       )}
     </div>
   )

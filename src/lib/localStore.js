@@ -327,6 +327,8 @@ export const localStore = {
       address:values.address || '',
       category:values.category || 'entertainment',
       priceLabel:values.priceLabel || '',
+      expenseAmount:Number(values.expenseAmount) || 0,
+      expenseCurrency:values.expenseCurrency || '',
       latitude:values.latitude ?? null,
       longitude:values.longitude ?? null,
       tripadvisorLocationId:values.tripadvisorLocationId || '',
@@ -409,7 +411,7 @@ export const localStore = {
   addHotel(tripId, values) {
     const trips = read(TRIPS_KEY, [])
     const trip = getTrip(trips, tripId)
-    trip.hotels.push({ id:id(), city:values.city, name:values.name, address:values.address || '', check_in:values.checkIn || '', check_out:values.checkOut || '', latitude:values.latitude ?? null, longitude:values.longitude ?? null })
+    trip.hotels.push({ id:id(), city:values.city, name:values.name, address:values.address || '', check_in:values.checkIn || '', check_out:values.checkOut || '', latitude:values.latitude ?? null, longitude:values.longitude ?? null, cost:values.cost ?? null, cost_currency:values.costCurrency || '' })
     write(TRIPS_KEY, trips)
     return trip
   },
@@ -438,7 +440,11 @@ export const localStore = {
       currency:values.currency || trip.currency || 'USD',
       category:values.category || 'activity',
       date:values.date || '',
-      paidBy:values.paidBy || null
+      paidBy:values.paidBy || null,
+      activityId:values.activityId || null,
+      hotelId:values.hotelId || null,
+      isSettlement:!!values.isSettlement,
+      split:values.split || {}
     })
     write(TRIPS_KEY, trips)
     return trip
