@@ -116,6 +116,10 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
     setBusy(true)
     const reply = await askAssistant(clean, history)
     setBusy(false)
+    if (reply?.limitReached) {
+      setMessages(list => [...list, { role:'assistant', content:reply.error, limitNotice:true }])
+      return
+    }
     if (reply) {
       setMessages(list => [...list, {
         role:'assistant',
@@ -171,7 +175,7 @@ export default function AssistantChat({ open: controlledOpen, onOpenChange, init
               </div>
             )}
             {messages.map((message, index) => (
-              <div key={index} className={`chat-bubble ${message.role} ${message.placeSuggestions?.length ? 'with-places' : ''}`}>
+              <div key={index} className={`chat-bubble ${message.role} ${message.placeSuggestions?.length ? 'with-places' : ''} ${message.limitNotice ? 'limit-notice' : ''}`}>
                 <Markdown>{message.content}</Markdown>
                 {message.placeSuggestions?.length > 0 && (
                   <div className="chat-place-list">

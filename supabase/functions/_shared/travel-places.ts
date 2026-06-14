@@ -1,4 +1,4 @@
-import { ensureTripadvisorQuota, recordTripadvisorDetails } from './quota.ts'
+import { ensureAndConsumeTripadvisorQuota, UserQuotaExceededError } from './quota.ts'
 
 const TRIPADVISOR_BASE = 'https://api.content.tripadvisor.com/api/v1'
 
@@ -14,6 +14,7 @@ type SearchOptions = {
   language?: string
   currency?: string
   limit?: number
+  userId?: string
 }
 
 const apiKey = () => Deno.env.get('TRIPADVISOR_API_KEY') || ''
@@ -71,20 +72,20 @@ export const hasTripadvisor = () => Boolean(apiKey())
 
 export async function getPlaceDetails(
   locationId: string,
-  options: { language?: string, currency?: string } = {}
+  options: { language?: string, currency?: string, userId?: string } = {}
 ) {
-  await ensureTripadvisorQuota()
+  if (!options.userId) throw new Error('userId es requerido para consultar Tripadvisor')
+  await ensureAndConsumeTripadvisorQuota(options.userId, 1)
   const data = await request(`/location/${encodeURIComponent(locationId)}/details`, {
     language:options.language || 'es',
     currency:options.currency || 'USD'
   })
-  await recordTripadvisorDetails(1)
   return normalizePlace(data)
 }
 
 const enrichMatches = async (
   matches: Record<string, unknown>[],
-  options: { language?: string, currency?: string }
+  options: { language?: string, currency?: string, userId?: string }
 ) => {
   const details: ReturnType<typeof normalizePlace>[] = []
   for (const match of matches) {
@@ -93,9 +94,11 @@ const enrichMatches = async (
     try {
       details.push(await getPlaceDetails(locationId, {
         language:options.language,
-        currency:options.currency
+        currency:options.currency,
+        userId:options.userId
       }))
     } catch (error) {
+      if (error instanceof UserQuotaExceededError) throw error
       if (error instanceof Error && error.message.includes('monthly limit reached')) {
         details.push(normalizePlace(match))
         break
@@ -131,6 +134,7 @@ type NearbyOptions = {
   language?: string
   currency?: string
   limit?: number
+  userId?: string
 }
 
 // Browse por área sin texto: /location/nearby_search no exige searchQuery,

@@ -6,6 +6,7 @@ import { useToast } from '../state/ToastContext.jsx'
 import { hasSupabase, supabase } from '../lib/supabase.js'
 import { formatDate } from '../lib/planner.js'
 import Skeleton from '../components/Skeleton.jsx'
+import { useRole } from '../lib/useRole.js'
 
 export default function TripsPage() {
   const { user, logout, backend } = useAuth()
@@ -16,6 +17,7 @@ export default function TripsPage() {
   const [inviteBusy, setInviteBusy] = useState(null)
   const navigate = useNavigate()
   const toast = useToast()
+  const { isAdmin } = useRole()
 
   useEffect(() => {
     if (!hasSupabase) return
@@ -79,7 +81,10 @@ export default function TripsPage() {
     <main className="dashboard">
       <header className="dashboard-header">
         <div><span className="eyebrow">RUTA 26</span><h1>Mis viajes</h1><p>Hola, {user.user_metadata?.name || user.name || user.email}</p></div>
-        <button className="ghost-btn" onClick={logout}>Salir</button>
+        <div className="header-actions">
+          {isAdmin && <button className="ghost-btn" onClick={() => navigate('/admin')}>Admin</button>}
+          <button className="ghost-btn" onClick={logout}>Salir</button>
+        </div>
       </header>
 
       {backend === 'local' && <div className="notice">Ambiente local: los datos están en este navegador. Al conectar Supabase se sincronizarán entre usuarios.</div>}

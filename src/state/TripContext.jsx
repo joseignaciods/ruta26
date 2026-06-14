@@ -548,7 +548,12 @@ export function TripProvider({ children }) {
               radiusKm:hasGeo ? options.radiusKm : undefined
             }
           })
-          if (error || data?.error) return null
+          if (error) {
+            const payload = await error.context?.json?.().catch(() => null)
+            if (payload?.limitReached) toast(payload.error)
+            return null
+          }
+          if (data?.error) return null
           writePlaceCache(cacheKey, data)
           return data
         } catch {
@@ -574,16 +579,26 @@ export function TripProvider({ children }) {
           let { data, error } = await supabase.functions.invoke('travel-search', {
             body:{ action:'nearby', latitude, longitude, radiusKm, category:providerCategory, currency:activeTrip?.currency, language:'es', limit }
           })
+          if (error) {
+            const payload = await error.context?.json?.().catch(() => null)
+            if (payload?.limitReached) toast(payload.error)
+            return null
+          }
           // Solo reintentamos con búsqueda por texto si la edge function aún no
           // soporta 'nearby' (responde "query es requerido"). Nunca ante cuota
           // agotada (429) ni otros errores: sería doble gasto de cuota.
-          const needsFallback = fallbackQuery && !data?.quotaExceeded && (data?.error === 'query es requerido')
+          const needsFallback = fallbackQuery && data?.error === 'query es requerido'
           if (needsFallback) {
             ;({ data, error } = await supabase.functions.invoke('travel-search', {
               body:{ query:fallbackQuery, category:providerCategory, latitude, longitude, radiusKm, currency:activeTrip?.currency, language:'es', limit }
             }))
           }
-          if (error || data?.error) return null
+          if (error) {
+            const payload = await error.context?.json?.().catch(() => null)
+            if (payload?.limitReached) toast(payload.error)
+            return null
+          }
+          if (data?.error) return null
           writePlaceCache(cacheKey, data)
           return data
         } catch {
@@ -843,7 +858,11 @@ export function TripProvider({ children }) {
           .select('role,content')
           .eq('trip_id', activeTrip.id)
           .order('created_at')
-        if (error) throw error
+        if (error) {
+          const payload = await error.context?.json?.().catch(() => null)
+          if (payload?.limitReached) return payload
+          throw error
+        }
         return data
       }),
 

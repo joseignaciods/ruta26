@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js'
 import { getPlaceDetails, hasTripadvisor, nearbyPlaces, searchPlaces } from '../_shared/travel-places.ts'
+import { loadSettings, UserQuotaExceededError } from '../_shared/quota.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -26,13 +27,18 @@ Deno.serve(async request => {
     const { data:{ user } } = await supabase.auth.getUser()
     if (!user) return json({ error:'Unauthorized' }, 401)
     if (!hasTripadvisor()) return json({ error:'Tripadvisor no está configurado' }, 503)
+    const settings = await loadSettings()
+    if (!settings.taEnabled) {
+      return json({ error:'La búsqueda de lugares está desactivada por el administrador.', killSwitch:true, quotaExceeded:true }, 429)
+    }
 
     const body = await request.json()
     if (body.action === 'details') {
       if (!body.locationId) return json({ error:'locationId es requerido' }, 400)
       const place = await getPlaceDetails(body.locationId, {
         language:body.language,
-        currency:body.currency
+        currency:body.currency,
+        userId:user.id
       })
       return json({ provider:'tripadvisor', place, externalContent:true })
     }
@@ -46,7 +52,8 @@ Deno.serve(async request => {
         radiusKm:body.radiusKm,
         language:body.language,
         currency:body.currency,
-        limit:body.limit
+        limit:body.limit,
+        userId:user.id
       })
       return json({ provider:'tripadvisor', places, externalContent:true })
     }
@@ -61,10 +68,17 @@ Deno.serve(async request => {
       radiusKm:body.radiusKm,
       language:body.language,
       currency:body.currency,
-      limit:body.limit
+      limit:body.limit,
+      userId:user.id
     })
     return json({ provider:'tripadvisor', places, externalContent:true })
   } catch (error) {
+    if (error instanceof UserQuotaExceededError) {
+      return json({
+        error:`Alcanzaste tu límite mensual de búsquedas de lugares (${error.used}/${error.limit}). Se renueva el próximo mes.`,
+        limitReached:true, kind:'ta', used:error.used, limit:error.limit, remaining:0
+      }, 429)
+    }
     const message = error instanceof Error ? error.message : 'Unexpected error'
     if (message.includes('monthly limit reached')) {
       return json({ error:'Tripadvisor quota mensual alcanzada. Búsqueda externa pausada hasta el próximo mes.', quotaExceeded:true }, 429)

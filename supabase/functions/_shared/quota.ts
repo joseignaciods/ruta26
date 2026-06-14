@@ -45,3 +45,57 @@ export async function recordTripadvisorDetails(count = 1) {
     console.warn('Failed to record Tripadvisor usage', error)
   }
 }
+
+export async function loadSettings() {
+  const { data, error } = await admin()
+    .from('app_settings')
+    .select('ai_enabled, ta_enabled, ta_global_monthly_cap')
+    .eq('id', true)
+    .maybeSingle()
+  if (error) console.warn('Failed to load app settings, using defaults', error.message)
+  return {
+    aiEnabled:data?.ai_enabled ?? true,
+    taEnabled:data?.ta_enabled ?? true,
+    taGlobalCap:Number(data?.ta_global_monthly_cap) || tripadvisorLimit()
+  }
+}
+
+export class UserQuotaExceededError extends Error {
+  kind: 'ai' | 'ta'
+  used: number
+  limit: number
+  constructor(kind: 'ai' | 'ta', used: number, limit: number) {
+    super(`Per-user ${kind} monthly limit reached (${used}/${limit})`)
+    this.kind = kind
+    this.used = used
+    this.limit = limit
+  }
+}
+
+export async function ensureAndConsumeUserQuota(userId: string, kind: 'ai' | 'ta', count = 1) {
+  const { data, error } = await admin()
+    .rpc('consume_user_quota', { p_user:userId, p_kind:kind, p_count:count })
+  if (error) throw error
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row?.allowed) throw new UserQuotaExceededError(kind, row?.used ?? 0, row?.lim ?? 0)
+  return { used:Number(row.used), limit:Number(row.lim) }
+}
+
+export async function ensureAndConsumeTripadvisorQuota(userId: string, count = 1) {
+  const { data, error } = await admin()
+    .rpc('consume_tripadvisor_quotas', { p_user:userId, p_count:count })
+  if (error) throw error
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row?.allowed) {
+    if (row?.reason === 'user') {
+      throw new UserQuotaExceededError('ta', Number(row.user_used || 0), Number(row.user_limit || 0))
+    }
+    throw new QuotaExceededError(Number(row?.global_used || 0), Number(row?.global_limit || 0))
+  }
+  return {
+    used:Number(row.user_used),
+    limit:Number(row.user_limit),
+    globalUsed:Number(row.global_used),
+    globalLimit:Number(row.global_limit)
+  }
+}

@@ -1,6 +1,7 @@
 import OpenAI from 'npm:openai'
 import { createClient } from 'npm:@supabase/supabase-js'
 import { getPlaceDetails, hasTripadvisor, searchPlaces } from '../_shared/travel-places.ts'
+import { ensureAndConsumeUserQuota, loadSettings, UserQuotaExceededError } from '../_shared/quota.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -387,7 +388,8 @@ async function runTool(supabase: any, tripId: string, userId: string, name: stri
         longitude:name === 'search_nearby_places' ? args.longitude : undefined,
         radiusKm:name === 'search_nearby_places' ? args.radius_km : undefined,
         language:'es',
-        limit:args.limit || 5
+        limit:args.limit || 5,
+        userId
       })
       return {
         ok:true,
@@ -401,7 +403,7 @@ async function runTool(supabase: any, tripId: string, userId: string, name: stri
       if (!hasTripadvisor()) {
         return { error:'Tripadvisor no está configurado en el backend' }
       }
-      const place = await getPlaceDetails(args.location_id, { language:'es' })
+      const place = await getPlaceDetails(args.location_id, { language:'es', userId })
       return {
         ok:true,
         changed:false,
@@ -412,6 +414,9 @@ async function runTool(supabase: any, tripId: string, userId: string, name: stri
     }
     return { error: `Herramienta desconocida: ${name}` }
   } catch (error) {
+    if (error instanceof UserQuotaExceededError) {
+      return { error:'Alcanzaste tu límite mensual de búsquedas de lugares. Se renueva el próximo mes.' }
+    }
     return { error: error instanceof Error ? error.message : 'Error ejecutando herramienta' }
   }
 }
@@ -438,8 +443,15 @@ Deno.serve(async request => {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return json({ error: 'Unauthorized' }, 401)
 
-  const { tripId, messages = [], externalContentInHistory = false } = await request.json()
-  const cleanMessages = Array.isArray(messages)
+	  const { tripId, messages = [], externalContentInHistory = false } = await request.json()
+	  const settings = await loadSettings()
+	  if (!settings.aiEnabled) {
+	    return json({
+	      error:'El asistente IA está temporalmente desactivado por el administrador.',
+	      limitReached:true, kind:'ai', killSwitch:true, used:0, limit:0, remaining:0
+	    }, 429)
+	  }
+	  const cleanMessages = Array.isArray(messages)
     ? messages
       .filter(message =>
         message &&
@@ -453,7 +465,18 @@ Deno.serve(async request => {
     .select('id,name,start_date,end_date,currency,timezone,preferences,days(id,position,date,city,title,activities(id,position,name,time,category,address,latitude,longitude,price_label,tripadvisor_location_id)),hotels(id,city,name,address,check_in,check_out),expenses(description,amount,currency,date)')
     .eq('id', tripId)
     .single()
-  if (!trip) return json({ error: 'Forbidden' }, 403)
+	  if (!trip) return json({ error: 'Forbidden' }, 403)
+	  try {
+	    await ensureAndConsumeUserQuota(user.id, 'ai', 1)
+	  } catch (error) {
+	    if (error instanceof UserQuotaExceededError) {
+	      return json({
+	        error:`Alcanzaste tu límite mensual del asistente IA (${error.used}/${error.limit}). Se renueva el día 1 del próximo mes.`,
+	        limitReached:true, kind:'ai', used:error.used, limit:error.limit, remaining:0
+	      }, 429)
+	    }
+	    throw error
+	  }
 
   const preferenceNotes = (trip.preferences as { notes?: string } | null)?.notes || ''
   const system = [
