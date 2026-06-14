@@ -40,7 +40,7 @@ export default function AuthPage({ initialMode = 'login' }) {
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <div className="brand-mark">R26</div>
+        <img className="auth-app-icon" src="/icon-192.png" alt="Ruta 26" />
         <h1>Ruta 26</h1>
         <p>Planifica viajes en compañía.</p>
         <form onSubmit={submit}>
