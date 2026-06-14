@@ -33,6 +33,9 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const [addedKeys, setAddedKeys] = useState([])
   const [areaSearch, setAreaSearch] = useState(false)
   const [activeKey, setActiveKey] = useState(null)
+  const [geoAnchor, setGeoAnchor] = useState(null)
+  const [geoBusy, setGeoBusy] = useState(false)
+  const [geoError, setGeoError] = useState('')
   const panelRef = useRef(null)
   const mapElRef = useRef(null)
   const mapRef = useRef(null)
@@ -42,13 +45,33 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const requestSeq = useRef(0)
 
   const intent = intentFor(intentKey)
+  const effectiveAnchor = geoAnchor || anchor
 
   useEffect(() => {
+    if (geoAnchor) return
     let alive = true
     dayAnchor(day, activeTrip.hotels).then(point => { if (alive) setAnchor(point) })
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [day.id])
+  }, [day.id, geoAnchor])
+
+  const toggleGeo = () => {
+    if (geoAnchor) { setGeoAnchor(null); setGeoError(''); return }
+    if (!navigator.geolocation) { setGeoError('Tu dispositivo no comparte ubicación'); return }
+    setGeoBusy(true)
+    setGeoError('')
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        setGeoAnchor({ latitude:position.coords.latitude, longitude:position.coords.longitude, label:'tu ubicación' })
+        setGeoBusy(false)
+      },
+      error => {
+        setGeoError(error.code === error.PERMISSION_DENIED ? 'Permiso de ubicación denegado' : 'No pudimos leer tu ubicación')
+        setGeoBusy(false)
+      },
+      { enableHighAccuracy:false, timeout:8000, maximumAge:60000 }
+    )
+  }
 
   // El teclado de iOS encoge el visualViewport; el panel se ajusta igual que el asistente.
   useEffect(() => {
@@ -116,12 +139,14 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       })
     } else {
       const options = { seed, limit:8 }
-      if (anchor) {
-        options.latitude = anchor.latitude
-        options.longitude = anchor.longitude
+      if (effectiveAnchor) {
+        options.latitude = effectiveAnchor.latitude
+        options.longitude = effectiveAnchor.longitude
         options.radiusKm = seed ? 15 : 30
       }
-      result = await searchPlaces(seed ? intent.seedQuery : text, day.city, intent.category, options)
+      // Si el anchor es GPS no anclamos la búsqueda a la ciudad del día.
+      const cityForSearch = geoAnchor ? '' : day.city
+      result = await searchPlaces(seed ? intent.seedQuery : text, cityForSearch, intent.category, options)
     }
     if (seq !== requestSeq.current) return
     setBusy(false)
@@ -141,7 +166,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
 
   // Sugerencias al abrir o cambiar de intención; búsqueda al tipear (3+ letras).
   useEffect(() => {
-    if (anchor === undefined) return
+    if (effectiveAnchor === undefined) return
     clearTimeout(searchTimer.current)
     const clean = query.trim()
     if (clean.length >= 3) {
@@ -151,7 +176,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     }
     return () => clearTimeout(searchTimer.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor, intentKey, query])
+  }, [effectiveAnchor, intentKey, query])
 
   useEffect(() => {
     if (view !== 'map' || !mapElRef.current) return
@@ -162,7 +187,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     }).addTo(map)
     markersRef.current = L.layerGroup().addTo(map)
     lastProgrammaticMove.current = Date.now()
-    map.setView(anchor ? [anchor.latitude, anchor.longitude] : [20, 0], anchor ? 13 : 2)
+    map.setView(effectiveAnchor ? [effectiveAnchor.latitude, effectiveAnchor.longitude] : [20, 0], effectiveAnchor ? 13 : 2)
     map.on('moveend', () => {
       if (Date.now() - lastProgrammaticMove.current < 800) return
       setAreaSearch(true)
@@ -250,11 +275,11 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   return (
     <div className="place-picker" ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="picker-title" tabIndex={-1}>
       <header className="picker-header">
+        <button type="button" className="back-btn" onClick={onClose} aria-label="Volver a la ruta">←</button>
         <div>
           <span>DÍA {day.position} · {day.city.toUpperCase()}</span>
           <h3 id="picker-title">{intent.title}</h3>
         </div>
-        <button type="button" className="ghost-btn" onClick={onClose}>Cerrar</button>
       </header>
 
       <div className="picker-controls">
@@ -284,8 +309,14 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
             <button type="button" className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>Lista</button>
             <button type="button" className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}>Mapa</button>
           </div>
-          {anchor && <small className="picker-anchor">Cerca de {anchor.label}</small>}
+          <label className={`picker-geo ${geoAnchor ? 'on' : ''}`}>
+            <input type="checkbox" checked={!!geoAnchor} onChange={toggleGeo} disabled={geoBusy} />
+            <span>{geoBusy ? 'Ubicando…' : 'Cerca mío'}</span>
+          </label>
         </div>
+        {(geoError || effectiveAnchor) && (
+          <small className="picker-anchor">{geoError || `Cerca de ${effectiveAnchor.label}`}</small>
+        )}
       </div>
 
       {view === 'list' ? (
@@ -294,8 +325,8 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
           {resultsLabel && (places.length > 0 || !busy) && <p className="picker-results-label">{resultsLabel}</p>}
           {places.map(place => {
             const added = addedKeys.includes(placeKey(place))
-            const distance = anchor && hasCoords(place)
-              ? distanceKm([anchor.latitude, anchor.longitude], [place.latitude, place.longitude])
+            const distance = effectiveAnchor && hasCoords(place)
+              ? distanceKm([effectiveAnchor.latitude, effectiveAnchor.longitude], [place.latitude, place.longitude])
               : null
             return (
               <article className="chat-place-card" key={placeKey(place)}>
