@@ -160,9 +160,19 @@ function Hotels({ trip }) {
   )
 }
 
+const CATEGORY_LABELS = { food:'Comida', transport:'Transporte', hotel:'Hotel', activity:'Actividad', other:'Otro' }
+const ORIGIN_FILTERS = [
+  { key:'all', label:'Todos' },
+  { key:'panorama', label:'Panorama' },
+  { key:'hotel', label:'Hotel' },
+  { key:'food', label:'Comida' },
+  { key:'transport', label:'Transporte' },
+  { key:'other', label:'Otro' }
+]
+
 function Expenses({ trip }) {
   const { user } = useAuth()
-  const { addExpense, deleteExpense } = useTrips()
+  const { addExpense, updateExpense, deleteExpense } = useTrips()
   const members = trip.members.filter(member => member.status === 'active')
   const nameOf = userId => { const m = members.find(member => member.userId === userId); return m?.name || m?.email || 'Miembro' }
   const today = new Date().toISOString().slice(0, 10)
@@ -170,7 +180,10 @@ function Expenses({ trip }) {
   const [form, setForm] = useState(emptyForm)
   const [expanded, setExpanded] = useState(false)
   const [payerFilter, setPayerFilter] = useState('all')
+  const [originFilter, setOriginFilter] = useState('all')
   const [splitOpen, setSplitOpen] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [editSplitOpen, setEditSplitOpen] = useState(false)
   const grouped = useMemo(() => {
     const totals = {}
     for (const expense of trip.expenses) if (!expense.isSettlement) totals[expense.currency] = (totals[expense.currency] || 0) + expense.amount
@@ -185,7 +198,18 @@ function Expenses({ trip }) {
     if (sp.members.length === members.length) return 'entre todos'
     return `entre ${sp.members.length}`
   }
-  const originLabel = expense => expense.activityId ? 'Panorama' : expense.hotelId ? 'Hotel' : expense.category
+  const originLabel = expense => {
+    if (expense.isSettlement) return 'Pago'
+    return expense.activityId ? 'Panorama' : expense.hotelId ? 'Hotel' : (CATEGORY_LABELS[expense.category] || expense.category)
+  }
+  const matchesOrigin = expense => {
+    if (originFilter === 'all') return true
+    if (originFilter === 'panorama') return !!expense.activityId
+    if (originFilter === 'hotel') return !!expense.hotelId || expense.category === 'hotel'
+    if (originFilter === 'food') return !expense.activityId && !expense.hotelId && expense.category === 'food'
+    if (originFilter === 'transport') return !expense.activityId && !expense.hotelId && expense.category === 'transport'
+    return !expense.activityId && !expense.hotelId && !['food','transport','hotel'].includes(expense.category)
+  }
 
   const submit = async event => {
     event.preventDefault()
@@ -193,6 +217,30 @@ function Expenses({ trip }) {
     const split = resolveSplit(form.split, Number(form.amount), activeIds)
     const result = await addExpense({ ...form, split })
     if (result !== null) setForm(current => ({ ...emptyForm, currency:current.currency, paidBy:current.paidBy }))
+  }
+
+  const startEdit = expense => {
+    setEditing({ ...expense, amount:String(expense.amount) })
+    setEditSplitOpen(false)
+  }
+  const saveEdit = async () => {
+    if (!editing) return
+    const activeIds = members.map(member => member.userId)
+    const split = resolveSplit(editing.split || {}, Number(editing.amount), activeIds)
+    await updateExpense(editing.id, {
+      description:editing.description, amount:Number(editing.amount), currency:editing.currency,
+      category:editing.category, date:editing.date, paidBy:editing.paidBy, split
+    })
+    setEditing(null)
+  }
+
+  const recordSettle = async (transfer, currency) => {
+    await addExpense({
+      description:`${nameOf(transfer.from)} → ${nameOf(transfer.to)}`,
+      amount:transfer.amount, currency, category:'other', date:today,
+      paidBy:transfer.from, isSettlement:true,
+      split:{ mode:'equal', members:[transfer.to], amounts:{ [transfer.to]:transfer.amount } }
+    })
   }
 
   return (
@@ -203,7 +251,7 @@ function Expenses({ trip }) {
         <button className="primary-btn compact">+</button>
         <button type="button" className="more-options" onClick={() => setExpanded(value => !value)}>{expanded ? 'menos opciones' : 'más opciones'}</button>
         {expanded && <div className="expense-options">
-          <div className="expense-categories">{['food','transport','hotel','activity','other'].map(category => <button type="button" className={form.category === category ? 'active' : ''} key={category} onClick={() => setForm({ ...form, category })}>{category}</button>)}</div>
+          <div className="expense-categories">{['food','transport','hotel','activity','other'].map(category => <button type="button" className={form.category === category ? 'active' : ''} key={category} onClick={() => setForm({ ...form, category })}>{CATEGORY_LABELS[category] || category}</button>)}</div>
           <input aria-label="Moneda" value={form.currency} onChange={e => setForm({ ...form, currency:e.target.value.toUpperCase() })} />
           <input aria-label="Fecha" type="date" value={form.date} onChange={e => setForm({ ...form, date:e.target.value })} />
           {members.length > 1
@@ -213,13 +261,16 @@ function Expenses({ trip }) {
             : <select aria-label="Pagado por" value={form.paidBy} onChange={e => setForm({ ...form, paidBy:e.target.value })}>{members.map(member => <option key={member.id} value={member.userId}>{member.name || member.email}</option>)}</select>}
         </div>}
       </form>
-      <div className="payer-filters"><button className={payerFilter === 'all' ? 'active' : ''} onClick={() => setPayerFilter('all')}>Todos</button>{members.map(member => <button className={payerFilter === member.userId ? 'active' : ''} key={member.id} onClick={() => setPayerFilter(member.userId)}>{member.name || member.email}</button>)}</div>
+      <div className="expense-filters">
+        <div className="payer-filters"><button className={payerFilter === 'all' ? 'active' : ''} onClick={() => setPayerFilter('all')}>Todos</button>{members.map(member => <button className={payerFilter === member.userId ? 'active' : ''} key={member.id} onClick={() => setPayerFilter(member.userId)}>{member.name || member.email}</button>)}</div>
+        <div className="payer-filters">{ORIGIN_FILTERS.map(f => <button className={originFilter === f.key ? 'active' : ''} key={f.key} onClick={() => setOriginFilter(f.key)}>{f.label}</button>)}</div>
+      </div>
       {Object.keys(grouped).length > 0 && <div className="totals-row">
         {Object.entries(grouped).map(([currency, total]) => <div key={currency}><small>Total {currency}</small><b>{money(total, currency)}</b></div>)}
       </div>}
-      {trip.expenses.filter(expense => payerFilter === 'all' || expense.paidBy === payerFilter).map(expense => (
+      {trip.expenses.filter(expense => (payerFilter === 'all' || expense.paidBy === payerFilter) && matchesOrigin(expense)).map(expense => (
         <article className="list-card" key={expense.id}>
-          <div className="expense-copy"><i>{originLabel(expense)}</i><small>{formatDate(expense.date) || 'Sin fecha'} · {nameOf(expense.paidBy)} · {splitSummary(expense)}</small><h3>{expense.description}</h3><p>{money(expense.amount, expense.currency)}</p></div>
+          <button className="expense-copy" onClick={() => startEdit(expense)}><i>{originLabel(expense)}</i><small>{formatDate(expense.date) || 'Sin fecha'} · {nameOf(expense.paidBy)} · {splitSummary(expense)}</small><h3>{expense.description}</h3><p>{money(expense.amount, expense.currency)}</p></button>
           <button className="icon-btn" onClick={() => deleteExpense(expense.id)} aria-label="Eliminar gasto">✕</button>
         </article>
       ))}
@@ -237,12 +288,57 @@ function Expenses({ trip }) {
             {transfers.length > 0 && <div className="settle-list">
               <b>Para quedar al día</b>
               {transfers.map((transfer, index) => (
-                <span key={index}>{nameOf(transfer.from)} → {nameOf(transfer.to)}: {money(transfer.amount, currency)}</span>
+                <div className="settle-row" key={index}>
+                  <span>{nameOf(transfer.from)} → {nameOf(transfer.to)}: {money(transfer.amount, currency)}</span>
+                  <button className="settle-btn" onClick={() => recordSettle(transfer, currency)}>Registrar pago</button>
+                </div>
               ))}
             </div>}
           </div>
         )
       })}
+
+      {editing && (
+        <div className="split-editor" onClick={() => setEditing(null)}>
+          <div className="split-sheet" onClick={event => event.stopPropagation()}>
+            <div className="composer-heading">
+              <div><span>EDITAR GASTO</span><h4>{editing.description}</h4></div>
+              <button type="button" className="icon-btn" onClick={() => setEditing(null)} aria-label="Cerrar">✕</button>
+            </div>
+            <label>Descripción<input value={editing.description} onChange={e => setEditing({ ...editing, description:e.target.value })} /></label>
+            <div className="two-cols">
+              <label>Monto<input type="number" min="0" step="0.01" value={editing.amount} onChange={e => setEditing({ ...editing, amount:e.target.value })} /></label>
+              <label>Moneda<input value={editing.currency} onChange={e => setEditing({ ...editing, currency:e.target.value.toUpperCase() })} /></label>
+            </div>
+            <div className="two-cols">
+              <label>Categoría
+                <select value={editing.category} onChange={e => setEditing({ ...editing, category:e.target.value })}>
+                  {Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                </select>
+              </label>
+              <label>Fecha<input type="date" value={editing.date} onChange={e => setEditing({ ...editing, date:e.target.value })} /></label>
+            </div>
+            {members.length > 1 && (
+              <button type="button" className="split-summary-btn" onClick={() => setEditSplitOpen(true)}>
+                Pagó {nameOf(editing.paidBy)} · {editing.split?.members?.length ? (editing.split.members.length === 1 ? 'personal' : `entre ${editing.split.members.length}`) : 'igual entre todos'} ✎
+              </button>
+            )}
+            <button className="primary-btn compact" onClick={saveEdit} disabled={!editing.description || !Number(editing.amount)}>Guardar cambios</button>
+          </div>
+        </div>
+      )}
+
+      {editSplitOpen && editing && (
+        <SplitEditor
+          amount={Number(editing.amount) || 0}
+          currency={editing.currency}
+          members={members}
+          currentUserId={user.id}
+          value={{ paidBy:editing.paidBy, split:editing.split }}
+          onCancel={() => setEditSplitOpen(false)}
+          onSave={({ paidBy, split }) => { setEditing(current => ({ ...current, paidBy, split })); setEditSplitOpen(false) }}
+        />
+      )}
 
       {splitOpen && (
         <SplitEditor

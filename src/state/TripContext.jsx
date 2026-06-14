@@ -736,6 +736,26 @@ export function TripProvider({ children }) {
         }
       }),
 
+      updateExpense: (expenseId, fields) => run(async () => {
+        if (!activeTrip) return
+        updateActive(trip => ({ ...trip, expenses:trip.expenses.map(expense => expense.id === expenseId ? { ...expense, ...fields } : expense) }))
+        if (!hasSupabase) localStore.updateExpense(activeTrip.id, expenseId, fields)
+        else {
+          const payload = {}
+          if (fields.description !== undefined) payload.description = fields.description
+          if (fields.amount !== undefined) payload.amount = Number(fields.amount)
+          if (fields.currency !== undefined) payload.currency = fields.currency
+          if (fields.category !== undefined) payload.category = fields.category
+          if (fields.date !== undefined) payload.date = fields.date || null
+          if (fields.paidBy !== undefined) payload.paid_by = fields.paidBy
+          if (fields.split !== undefined) payload.split = fields.split
+          if (fields.isSettlement !== undefined) payload.is_settlement = !!fields.isSettlement
+          const { error } = await supabase.from('expenses').update(payload).eq('id', expenseId)
+          if (error) { await refresh(); throw error }
+        }
+        toast('Gasto actualizado', 'success')
+      }),
+
       deleteExpense: expenseId => run(async () => {
         if (!activeTrip) return
         const removed = activeTrip.expenses.find(item => item.id === expenseId)

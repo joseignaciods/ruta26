@@ -450,6 +450,15 @@ export const localStore = {
     return trip
   },
 
+  updateExpense(tripId, expenseId, fields) {
+    const trips = read(TRIPS_KEY, [])
+    const trip = getTrip(trips, tripId)
+    const expense = trip.expenses.find(item => item.id === expenseId)
+    if (expense) Object.assign(expense, fields)
+    write(TRIPS_KEY, trips)
+    return trip
+  },
+
   deleteExpense(tripId, expenseId) {
     const trips = read(TRIPS_KEY, [])
     const trip = getTrip(trips, tripId)
