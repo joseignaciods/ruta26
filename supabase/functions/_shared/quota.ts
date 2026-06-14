@@ -99,3 +99,44 @@ export async function ensureAndConsumeTripadvisorQuota(userId: string, count = 1
     globalLimit:Number(row.global_limit)
   }
 }
+
+type OpenAIUsage = {
+  input_tokens?: number
+  output_tokens?: number
+  input_tokens_details?: { cached_tokens?: number }
+}
+
+const modelPricing = (model: string) => {
+  const configured = {
+    input:Number(Deno.env.get('OPENAI_INPUT_USD_PER_MILLION')),
+    cached:Number(Deno.env.get('OPENAI_CACHED_INPUT_USD_PER_MILLION')),
+    output:Number(Deno.env.get('OPENAI_OUTPUT_USD_PER_MILLION'))
+  }
+  if (Object.values(configured).every(value => Number.isFinite(value) && value >= 0)) return configured
+  if (model.startsWith('gpt-5.4-mini')) return { input:0.75, cached:0.075, output:4.5 }
+  if (model.startsWith('gpt-5.4')) return { input:2.5, cached:0.25, output:15 }
+  if (model.startsWith('gpt-5-mini')) return { input:0.25, cached:0.025, output:2 }
+  if (model.startsWith('gpt-5')) return { input:1.25, cached:0.125, output:10 }
+  return { input:0.75, cached:0.075, output:4.5 }
+}
+
+export async function recordOpenAIUsage(userId: string, model: string, usage: OpenAIUsage | null | undefined) {
+  if (!usage) return
+  const inputTokens = Math.max(0, Number(usage.input_tokens || 0))
+  const cachedTokens = Math.min(inputTokens, Math.max(0, Number(usage.input_tokens_details?.cached_tokens || 0)))
+  const outputTokens = Math.max(0, Number(usage.output_tokens || 0))
+  const prices = modelPricing(model)
+  const cost = (
+    (inputTokens - cachedTokens) * prices.input +
+    cachedTokens * prices.cached +
+    outputTokens * prices.output
+  ) / 1_000_000
+  const { error } = await admin().rpc('record_openai_usage', {
+    p_user:userId,
+    p_input_tokens:inputTokens,
+    p_cached_input_tokens:cachedTokens,
+    p_output_tokens:outputTokens,
+    p_cost_usd:cost
+  })
+  if (error) console.warn('Failed to record OpenAI usage', error.message)
+}

@@ -101,6 +101,11 @@ Deno.serve(async request => {
         if (value === undefined) return json({ error:`Valor inválido para ${source}` }, 400)
         patch[column] = value
       }
+      if (payload.openaiBudget !== undefined) {
+        const value = Number(payload.openaiBudget)
+        if (!Number.isFinite(value) || value < 0) return json({ error:'Valor inválido para openaiBudget' }, 400)
+        patch.openai_monthly_budget_usd = Math.round(value * 100) / 100
+      }
       for (const [source, column] of [['aiEnabled', 'ai_enabled'], ['taEnabled', 'ta_enabled']] as const) {
         if (payload[source] === undefined) continue
         if (typeof payload[source] !== 'boolean') return json({ error:`Valor inválido para ${source}` }, 400)

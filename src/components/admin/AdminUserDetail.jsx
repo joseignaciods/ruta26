@@ -3,6 +3,10 @@ import { supabase } from '../../lib/supabase.js'
 import { useRole } from '../../lib/useRole.js'
 import { useToast } from '../../state/ToastContext.jsx'
 import { formatDate } from '../../lib/planner.js'
+import UsageMeter from './UsageMeter.jsx'
+
+const usd = value => `$${Number(value || 0).toFixed(Number(value || 0) < 0.01 ? 4 : 2)}`
+const tokens = value => new Intl.NumberFormat('es-CL').format(Number(value || 0))
 
 export default function AdminUserDetail({ userId, onBack }) {
   const toast = useToast()
@@ -13,21 +17,24 @@ export default function AdminUserDetail({ userId, onBack }) {
   const [pendingRole, setPendingRole] = useState('')
   const [saving, setSaving] = useState(false)
   const load = useCallback(async () => {
+    const month = new Date().toISOString().slice(0, 7)
     const results = await Promise.all([
       supabase.rpc('admin_list_users'),
       supabase.from('user_roles').select('role').eq('user_id', userId).maybeSingle(),
       supabase.from('user_limits').select('*').eq('user_id', userId).maybeSingle(),
       supabase.from('app_settings').select('*').eq('id', true).single(),
-      supabase.from('trip_members').select('trip_id,trips(id,name,start_date,end_date)').eq('user_id', userId)
+      supabase.from('trip_members').select('trip_id,trips(id,name,start_date,end_date)').eq('user_id', userId),
+      supabase.from('user_usage').select('ai_calls,ta_details_calls,ai_input_tokens,ai_cached_input_tokens,ai_output_tokens,ai_cost_usd').eq('user_id', userId).eq('month', month).maybeSingle()
     ])
     const failed = results.find(result => result.error)
     if (failed) throw failed.error
-    const [identities, role, limits, settings, memberships] = results
+    const [identities, role, limits, settings, memberships, usage] = results
     setData({
       user:identities.data.find(item => item.user_id === userId),
       role:role.data?.role || '',
       settings:settings.data,
-      memberships:memberships.data || []
+      memberships:memberships.data || [],
+      usage:usage.data || {}
     })
     setPendingRole(role.data?.role || '')
     setAi(limits.data?.ai_monthly_limit ?? '')
@@ -54,7 +61,7 @@ export default function AdminUserDetail({ userId, onBack }) {
           <option value="">Usuario</option><option value="admin">Admin</option><option value="superadmin">Superadmin</option>
           </select>
         </label>
-        {!isSuperadmin && <small>Solo un superadmin puede cambiar roles.</small>}
+      {!isSuperadmin && <small>Solo un superadmin puede cambiar roles.</small>}
         {isSuperadmin && pendingRole !== data.role && (
           <div className="admin-change-warning">
             <span>El rol cambiará de <b>{data.role || 'usuario'}</b> a <b>{pendingRole || 'usuario'}</b>.</span>
@@ -73,6 +80,24 @@ export default function AdminUserDetail({ userId, onBack }) {
       <div className="two-cols admin-limit-grid">
         <label>Límite IA<input type="number" min="0" value={ai} placeholder={`Global: ${data.settings.ai_monthly_limit_default}`} onChange={event => setAi(event.target.value)} /><small>{ai === '' ? `Hereda el límite global de ${data.settings.ai_monthly_limit_default}.` : 'Límite personalizado para este usuario.'}</small></label>
         <label>Límite búsquedas<input type="number" min="0" value={ta} placeholder={`Global: ${data.settings.ta_monthly_limit_default}`} onChange={event => setTa(event.target.value)} /><small>{ta === '' ? `Hereda el límite global de ${data.settings.ta_monthly_limit_default}.` : 'Límite personalizado para este usuario.'}</small></label>
+      </div>
+      <div className="admin-user-meters">
+        <UsageMeter
+          label="Costo OpenAI este mes"
+          value={Number(data.usage.ai_cost_usd || 0)}
+          format={usd}
+          detail={`${tokens(data.usage.ai_input_tokens)} entrada · ${tokens(data.usage.ai_cached_input_tokens)} caché · ${tokens(data.usage.ai_output_tokens)} salida`}
+          compact
+        />
+        <UsageMeter
+          label="Requests Tripadvisor"
+          value={Number(data.usage.ta_details_calls || 0)}
+          max={Number(ta === '' ? data.settings.ta_monthly_limit_default : ta)}
+          format={tokens}
+          detail="Solicitudes de detalle consumidas durante el mes."
+          tone="pink"
+          compact
+        />
       </div>
       <button className="primary-btn compact" onClick={async () => {
         try {

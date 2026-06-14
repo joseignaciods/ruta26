@@ -19,6 +19,7 @@ export default function AdminSettings() {
       aiDefault:Number(form.ai_monthly_limit_default),
       taDefault:Number(form.ta_monthly_limit_default),
       taGlobalCap:Number(form.ta_global_monthly_cap),
+      openaiBudget:Number(form.openai_monthly_budget_usd),
       aiEnabled:form.ai_enabled,
       taEnabled:form.ta_enabled
     } })
@@ -39,7 +40,10 @@ export default function AdminSettings() {
         <label>IA por usuario<input type="number" min="0" value={form.ai_monthly_limit_default} onChange={event => setForm({ ...form, ai_monthly_limit_default:event.target.value })} /></label>
         <label>Búsquedas por usuario<input type="number" min="0" value={form.ta_monthly_limit_default} onChange={event => setForm({ ...form, ta_monthly_limit_default:event.target.value })} /></label>
       </div>
-      <label>Tope global Tripadvisor<input type="number" min="0" value={form.ta_global_monthly_cap} onChange={event => setForm({ ...form, ta_global_monthly_cap:event.target.value })} /></label>
+      <div className="two-cols admin-limit-grid">
+        <label>Presupuesto OpenAI mensual (USD)<input type="number" min="0" step="0.01" value={form.openai_monthly_budget_usd} onChange={event => setForm({ ...form, openai_monthly_budget_usd:event.target.value })} /><small>Referencia visual para el medidor; no bloquea automáticamente.</small></label>
+        <label>Tope global Tripadvisor<input type="number" min="0" value={form.ta_global_monthly_cap} onChange={event => setForm({ ...form, ta_global_monthly_cap:event.target.value })} /><small>Bloquea requests cuando se alcanza este techo mensual.</small></label>
+      </div>
       <div className="admin-switch-list">
         <label className="admin-switch">
           <span><b>Asistente IA</b><small>Permite nuevas consultas al asistente para todos los usuarios.</small></span>

@@ -1,7 +1,7 @@
 import OpenAI from 'npm:openai'
 import { createClient } from 'npm:@supabase/supabase-js'
 import { getPlaceDetails, hasTripadvisor, searchPlaces } from '../_shared/travel-places.ts'
-import { ensureAndConsumeUserQuota, loadSettings, UserQuotaExceededError } from '../_shared/quota.ts'
+import { ensureAndConsumeUserQuota, loadSettings, recordOpenAIUsage, UserQuotaExceededError } from '../_shared/quota.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -517,6 +517,7 @@ Deno.serve(async request => {
   for (let round = 0; round < 6; round++) {
     const model = Deno.env.get('OPENAI_MODEL') || 'gpt-5-mini'
     const response = await openai.responses.create({ model, input, tools })
+    await recordOpenAIUsage(user.id, model, response.usage)
     // deno-lint-ignore no-explicit-any
     const calls = response.output.filter((item: any) => item.type === 'function_call')
     if (!calls.length) {
