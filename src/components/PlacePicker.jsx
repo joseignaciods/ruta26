@@ -79,8 +79,14 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     const syncViewport = () => {
       const panel = panelRef.current
       if (!panel) return
-      panel.style.setProperty('--picker-viewport-height', `${viewport?.height || window.innerHeight}px`)
-      panel.style.setProperty('--picker-viewport-top', `${viewport?.offsetTop || 0}px`)
+      const vpH = viewport?.height || window.innerHeight
+      if (viewport && vpH < window.innerHeight - 100) {
+        panel.style.height = `${vpH}px`
+        panel.style.bottom = 'auto'
+      } else {
+        panel.style.height = ''
+        panel.style.bottom = '0'
+      }
     }
     syncViewport()
     viewport?.addEventListener('resize', syncViewport)
