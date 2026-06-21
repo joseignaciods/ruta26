@@ -2,6 +2,8 @@ import { categories } from '../components/CategoryIcon.jsx'
 
 // Intenciones del selector de lugares: cada una define qué se sugiere antes de
 // tipear (seedQuery contra Tripadvisor) y los valores por defecto del panorama.
+// Cuatro atajos amplios (no filtros rígidos). "Comer" agrupa todas las comidas;
+// la hora del día se infiere al agregar con suggestMealTime.
 export const intents = [
   {
     key:'top',
@@ -15,37 +17,15 @@ export const intents = [
     defaultTime:null
   },
   {
-    key:'breakfast',
-    label:'Desayuno',
+    key:'eat',
+    label:'Comer',
     icon:'food',
     category:'food',
-    title:'¿Dónde desayunar?',
-    suggestTitle:'Para desayunar',
-    seedQuery:'desayuno brunch café',
-    placeholder:'Busca cafés, brunch, pastelerías…',
-    defaultTime:'09:00'
-  },
-  {
-    key:'lunch',
-    label:'Almuerzo',
-    icon:'food',
-    category:'food',
-    title:'¿Dónde almorzar?',
-    suggestTitle:'Para almorzar',
-    seedQuery:'restaurantes recomendados para almorzar',
-    placeholder:'Busca restaurantes, comida local…',
-    defaultTime:'13:30'
-  },
-  {
-    key:'dinner',
-    label:'Cena',
-    icon:'food',
-    category:'food',
-    title:'¿Dónde cenar?',
-    suggestTitle:'Para cenar',
-    seedQuery:'restaurantes recomendados para cenar',
-    placeholder:'Busca restaurantes, bares…',
-    defaultTime:'20:30'
+    title:'¿Dónde comer?',
+    suggestTitle:'Para comer',
+    seedQuery:'mejores restaurantes, cafés y bares',
+    placeholder:'Busca restaurantes, cafés, bares…',
+    defaultTime:null
   },
   {
     key:'culture',
@@ -60,7 +40,7 @@ export const intents = [
   },
   {
     key:'nature',
-    label:'Naturaleza',
+    label:'Aire libre',
     icon:'nature',
     category:'nature',
     title:'¿Qué aire libre?',
@@ -68,24 +48,13 @@ export const intents = [
     seedQuery:'parques, jardines y naturaleza',
     placeholder:'Busca parques, jardines, miradores…',
     defaultTime:null
-  },
-  {
-    key:'experience',
-    label:'Experiencias',
-    icon:'entertainment',
-    category:'entertainment',
-    title:'¿Qué experiencia vivir?',
-    suggestTitle:'Experiencias y tours',
-    seedQuery:'tours, espectáculos y experiencias',
-    placeholder:'Busca tours, shows, actividades…',
-    defaultTime:null
   }
 ]
 
 export const intentFor = key => intents.find(item => item.key === key) || intents[0]
 
 export const intentForCategory = categoryId =>
-  ({ food:'lunch', culture:'culture', nature:'nature', entertainment:'experience' })[categoryId] || 'top'
+  ({ food:'eat', culture:'culture', nature:'nature', entertainment:'top', transport:'top' })[categoryId] || 'top'
 
 export const inferCategory = (place, fallback) => {
   if (categories.some(category => category.id === place.category)) return place.category

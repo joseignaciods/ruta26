@@ -28,6 +28,7 @@ const mapActivity = row => ({
   latitude:row.latitude ?? null,
   longitude:row.longitude ?? null,
   tripadvisorLocationId:row.tripadvisor_location_id ?? row.tripadvisorLocationId ?? '',
+  imageUrl:row.image_url ?? row.imageUrl ?? '',
   done:!!row.done
 })
 

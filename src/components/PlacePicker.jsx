@@ -5,7 +5,7 @@ import { useTrips } from '../state/TripContext.jsx'
 import { useAuth } from '../state/AuthContext.jsx'
 import CategoryIcon, { categoryFor, pinHtml } from './CategoryIcon.jsx'
 import { inferCategory, intentFor, intents } from '../lib/intents.js'
-import { dayAnchor, suggestNextTime } from '../lib/planner.js'
+import { dayAnchor, suggestMealTime, suggestNextTime } from '../lib/planner.js'
 import { distanceKm } from '../lib/geo.js'
 import { resolveSplit } from '../lib/computeBalances.js'
 import SplitEditor from './SplitEditor.jsx'
@@ -244,7 +244,9 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const activityValues = (place, overrides = {}) => ({
     name:place ? place.name : query.trim(),
     category:place ? inferCategory(place, intent.category) : intent.category,
-    time:intent.defaultTime || suggestNextTime(day.activities),
+    time:intent.category === 'food'
+      ? suggestMealTime(day.activities)
+      : (intent.defaultTime || suggestNextTime(day.activities)),
     duration:'',
     address:place?.address || '',
     priceLabel:place?.priceLevel || '',

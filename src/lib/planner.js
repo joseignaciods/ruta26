@@ -34,6 +34,28 @@ export function suggestNextTime(activities = []) {
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 }
 
+// Para el chip "Comer": elige el próximo momento de comida libre del día
+// (desayuno → almuerzo → cena). Si ya hay algo en todos, cae en suggestNextTime.
+export function suggestMealTime(activities = []) {
+  const meals = [
+    { time:'09:00', from:5 * 60, to:11 * 60 },
+    { time:'13:30', from:11 * 60, to:16 * 60 },
+    { time:'20:30', from:18 * 60, to:23 * 60 }
+  ]
+  const toMinutes = value => {
+    const [hours, minutes] = (value || '').split(':').map(Number)
+    return Number.isFinite(hours) ? hours * 60 + (minutes || 0) : null
+  }
+  const taken = activities
+    .filter(item => item.category === 'food')
+    .map(item => toMinutes(item.time))
+    .filter(value => value != null)
+  for (const meal of meals) {
+    if (!taken.some(value => value >= meal.from && value < meal.to)) return meal.time
+  }
+  return suggestNextTime(activities)
+}
+
 export function formatDate(iso) {
   if (!iso) return ''
   const date = new Date(`${iso}T12:00:00`)

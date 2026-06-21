@@ -123,23 +123,12 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
     if (other) await reorderDays(activeTrip.days[index].id, other.id)
   }
 
-  // Los chips de comida abren el selector de lugares con la intención ya elegida;
-  // Traslado abre el composer (no necesita lugar) y Check-in se agrega directo
-  // porque el hotel ya trae dirección y coordenadas.
-  const quickActions = day => {
+  // Check-in se agrega directo porque el hotel ya trae dirección y coordenadas
+  // (no gasta cuota de Tripadvisor). Traslado y "a mano" abren el composer.
+  const addCheckin = day => {
     const hotel = dayHotel(day, activeTrip.hotels)
-    const actions = [
-      { key:'breakfast', label:'Desayuno', run:() => openPicker(day, 'breakfast') },
-      { key:'lunch', label:'Almuerzo', run:() => openPicker(day, 'lunch') },
-      { key:'dinner', label:'Cena', run:() => openPicker(day, 'dinner') },
-      { key:'transfer', label:'Traslado', run:() => openComposer(day, 'transport', 'Traslado') }
-    ]
-    if (hotel) actions.push({
-      key:'checkin',
-      label:'Check-in hotel',
-      run:() => addActivity(day.id, { ...emptyActivity, name:`Check-in ${hotel.name}`, category:'transport', time:'15:00', address:hotel.address || hotel.city, latitude:hotel.latitude, longitude:hotel.longitude })
-    })
-    return actions
+    if (!hotel) return
+    addActivity(day.id, { ...emptyActivity, name:`Check-in ${hotel.name}`, category:'transport', time:'15:00', address:hotel.address || hotel.city, latitude:hotel.latitude, longitude:hotel.longitude })
   }
 
   const onNameChange = (day, value) => {
@@ -265,21 +254,19 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
               </div>
 
               {composerDayId !== day.id && (
-                <>
-                  <div className="quick-chips">
-                    {quickActions(day).map(action => (
-                      <button key={action.key} onClick={action.run}>+ {action.label}</button>
-                    ))}
+                <div className="route-actions">
+                  <button className="add-panorama-btn" onClick={() => openPicker(day)}>
+                    <span>+</span><div><b>Agregar panorama</b><small>Lugares reales en {day.city}</small></div>
+                  </button>
+                  <div className="route-secondary">
+                    <button onClick={() => openPicker(day, 'top', 'map')}>Explorar mapa</button>
+                    {dayHotel(day, activeTrip.hotels) && (
+                      <button onClick={() => addCheckin(day)}>Check-in hotel</button>
+                    )}
+                    <button onClick={() => openComposer(day, 'transport', 'Traslado')}>Traslado</button>
+                    <button onClick={() => openComposer(day)}>A mano</button>
                   </div>
-                  <div className="route-actions">
-                    <button className="add-panorama-btn" onClick={() => openPicker(day)}>
-                      <span>+</span><div><b>Agregar panorama</b><small>Lugares reales en {day.city}</small></div>
-                    </button>
-                    <button className="discover-btn" onClick={() => openPicker(day, 'top', 'map')}>
-                      <CategoryIcon name="entertainment" /><span><b>Explorar el mapa</b><small>Descubre por zona</small></span>
-                    </button>
-                  </div>
-                </>
+                </div>
               )}
 
               {composerDayId === day.id && (
