@@ -78,11 +78,18 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   // El teclado de iOS encoge el visualViewport; el panel se ajusta igual que el asistente.
   useEffect(() => {
     const viewport = window.visualViewport
+    if (!viewport) return
+    // Altura de reposo = la mayor vista observada (sin teclado). Solo encogemos
+    // el panel cuando el teclado de iOS reduce visualViewport de forma marcada.
+    // Antes comparábamos contra window.innerHeight, que en iOS standalone es
+    // >100px mayor en reposo y disparaba un falso positivo dejando hueco abajo.
+    let restHeight = viewport.height
     const syncViewport = () => {
       const panel = panelRef.current
       if (!panel) return
-      const vpH = viewport?.height || window.innerHeight
-      if (viewport && vpH < window.innerHeight - 100) {
+      const vpH = viewport.height
+      if (vpH > restHeight) restHeight = vpH
+      if (vpH < restHeight - 140) {
         panel.style.height = `${vpH}px`
         panel.style.bottom = 'auto'
       } else {
@@ -90,14 +97,15 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
         panel.style.bottom = '0'
       }
     }
+    const onOrientation = () => { restHeight = 0; setTimeout(syncViewport, 300) }
     syncViewport()
-    viewport?.addEventListener('resize', syncViewport)
-    viewport?.addEventListener('scroll', syncViewport)
-    window.addEventListener('orientationchange', syncViewport)
+    viewport.addEventListener('resize', syncViewport)
+    viewport.addEventListener('scroll', syncViewport)
+    window.addEventListener('orientationchange', onOrientation)
     return () => {
-      viewport?.removeEventListener('resize', syncViewport)
-      viewport?.removeEventListener('scroll', syncViewport)
-      window.removeEventListener('orientationchange', syncViewport)
+      viewport.removeEventListener('resize', syncViewport)
+      viewport.removeEventListener('scroll', syncViewport)
+      window.removeEventListener('orientationchange', onOrientation)
     }
   }, [])
 
