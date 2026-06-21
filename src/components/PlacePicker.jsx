@@ -346,29 +346,42 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
         <div className={`picker-results ${busy ? 'is-busy' : ''}`} aria-live="polite" aria-busy={busy}>
           {busy && !places.length && <div className="ideas-loading">Buscando buenas opciones…</div>}
           {resultsLabel && (places.length > 0 || !busy) && <p className="picker-results-label">{resultsLabel}</p>}
-          {places.map(place => {
+          {places.map((place, index) => {
             const added = addedKeys.includes(placeKey(place))
             const distance = effectiveAnchor && hasCoords(place)
               ? distanceKm([effectiveAnchor.latitude, effectiveAnchor.longitude], [place.latitude, place.longitude])
               : null
+            // La primera con foto se muestra como "hero": foto grande y el nombre
+            // + rating superpuestos sobre la imagen (estilo Pinterest/Airbnb).
+            const hero = index === 0 && isExternalId(place.locationId) && Boolean(photos[place.locationId])
+            const ratingText = place.rating != null && place.rating !== 0 ? `★ ${Number(place.rating).toFixed(1)}/5` : ''
             return (
-              <article className="chat-place-card" key={placeKey(place)}>
+              <article className={`chat-place-card ${hero ? 'is-hero' : ''}`} key={placeKey(place)}>
                 {isExternalId(place.locationId) && (
                   <div className="chat-place-photo">
                     {photos[place.locationId]
                       ? <img src={photos[place.locationId]} alt="" loading="lazy" onError={() => setPhotos(prev => ({ ...prev, [place.locationId]:'' }))} />
                       : <CategoryIcon name={inferCategory(place, intent.category)} />}
+                    {hero && (
+                      <div className="chat-place-hero-overlay">
+                        <small>{categoryFor(inferCategory(place, intent.category)).label}</small>
+                        <h4>{place.name}</h4>
+                        {(ratingText || place.priceLevel) && <span>{[ratingText, place.priceLevel].filter(Boolean).join(' · ')}</span>}
+                      </div>
+                    )}
                   </div>
                 )}
-                <div className="chat-place-heading">
-                  <div>
-                    <small>{categoryFor(inferCategory(place, intent.category)).label}</small>
-                    <h4>{place.name}</h4>
+                {!hero && (
+                  <div className="chat-place-heading">
+                    <div>
+                      <small>{categoryFor(inferCategory(place, intent.category)).label}</small>
+                      <h4>{place.name}</h4>
+                    </div>
                   </div>
-                </div>
-                {(place.rating != null && place.rating !== 0) || place.priceLevel ? (
+                )}
+                {!hero && (ratingText || place.priceLevel) ? (
                   <div className="chat-place-badges">
-                    {place.rating != null && place.rating !== 0 && <span aria-label={`Calificación ${Number(place.rating).toFixed(1)} de 5`}>★ {Number(place.rating).toFixed(1)}/5</span>}
+                    {ratingText && <span aria-label={`Calificación ${Number(place.rating).toFixed(1)} de 5`}>{ratingText}</span>}
                     {place.priceLevel && <b title="Rango de precio informado por Tripadvisor">{place.priceLevel}</b>}
                   </div>
                 ) : null}
