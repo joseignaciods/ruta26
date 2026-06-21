@@ -36,8 +36,12 @@ Deno.serve(async request => {
     const wantsWiki = body.category !== 'restaurants' && body.category !== 'hotels'
     if (wantsWiki && (!body.action || body.action === 'search' || body.action === 'nearby')) {
       try {
+        // El seed (sugerencias al abrir, sin texto) y "buscar en esta zona" usan
+        // geosearch alrededor del ancla: la búsqueda por texto de Wikipedia no
+        // entiende frases tipo "mejores atracciones imperdibles" y devolvía vacío.
+        // Solo usamos texto cuando el usuario realmente escribió una consulta.
         const places = await searchWikiPlaces({
-          query:body.action === 'nearby' ? '' : body.query,
+          query:body.action === 'nearby' || body.seed ? '' : body.query,
           city:body.city,
           latitude:body.latitude,
           longitude:body.longitude,

@@ -548,7 +548,8 @@ export function TripProvider({ children }) {
           const hasGeo = options.latitude != null && options.longitude != null
           const geoKey = hasGeo ? `${options.latitude.toFixed(2)},${options.longitude.toFixed(2)},${Math.round(options.radiusKm || 0)}` : ''
           const limit = options.limit || 5
-          const cacheKey = placeCacheKey(['search', query, city, providerCategory, geoKey, limit])
+          const seed = !!options.seed
+          const cacheKey = placeCacheKey(['search', query, city, providerCategory, geoKey, limit, seed ? 'seed' : ''])
           const cached = readPlaceCache(cacheKey)
           if (cached) return cached
           const { data, error } = await supabase.functions.invoke('travel-search', {
@@ -556,6 +557,7 @@ export function TripProvider({ children }) {
               query,
               city,
               category:providerCategory,
+              seed,
               currency:activeTrip?.currency,
               language:'es',
               limit,
