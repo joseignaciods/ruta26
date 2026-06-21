@@ -22,6 +22,7 @@ const getTrip = (trips, tripId) => {
   trip.hotels ||= []
   trip.expenses ||= []
   trip.packingItems ||= []
+  trip.documents ||= []
   return trip
 }
 
@@ -412,7 +413,27 @@ export const localStore = {
   addHotel(tripId, values) {
     const trips = read(TRIPS_KEY, [])
     const trip = getTrip(trips, tripId)
-    trip.hotels.push({ id:id(), city:values.city, name:values.name, address:values.address || '', check_in:values.checkIn || '', check_out:values.checkOut || '', latitude:values.latitude ?? null, longitude:values.longitude ?? null, cost:values.cost ?? null, cost_currency:values.costCurrency || '' })
+    trip.hotels.push({ id:id(), city:values.city, name:values.name, address:values.address || '', check_in:values.checkIn || '', check_out:values.checkOut || '', latitude:values.latitude ?? null, longitude:values.longitude ?? null, cost:values.cost ?? null, cost_currency:values.costCurrency || '', url:values.url || '' })
+    write(TRIPS_KEY, trips)
+    return trip
+  },
+
+  addDocument(tripId, doc) {
+    const trips = read(TRIPS_KEY, [])
+    const trip = getTrip(trips, tripId)
+    trip.documents.push({
+      id:id(), tripId, activityId:doc.activityId || null, name:doc.name || 'Archivo',
+      type:doc.type || 'other', storagePath:doc.storagePath || '', mime:doc.mime || '',
+      notes:doc.notes || '', createdAt:new Date().toISOString()
+    })
+    write(TRIPS_KEY, trips)
+    return trip
+  },
+
+  deleteDocument(tripId, docId) {
+    const trips = read(TRIPS_KEY, [])
+    const trip = getTrip(trips, tripId)
+    trip.documents = trip.documents.filter(item => item.id !== docId)
     write(TRIPS_KEY, trips)
     return trip
   },

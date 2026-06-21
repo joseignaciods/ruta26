@@ -69,7 +69,8 @@ const mapTrip = (row, profiles = {}) => ({
     latitude:hotel.latitude ?? null,
     longitude:hotel.longitude ?? null,
     cost:hotel.cost ?? null,
-    costCurrency:hotel.cost_currency ?? hotel.costCurrency ?? ''
+    costCurrency:hotel.cost_currency ?? hotel.costCurrency ?? '',
+    url:hotel.url ?? ''
   })),
   expenses:(row.expenses || []).map(expense => ({
     id:expense.id,
@@ -84,7 +85,18 @@ const mapTrip = (row, profiles = {}) => ({
     isSettlement:!!(expense.is_settlement ?? expense.isSettlement),
     split:expense.split || {}
   })),
-  packingItems:(row.packing_items || row.packingItems || []).map(item => ({ id:item.id, item:item.item, packed:!!item.packed }))
+  packingItems:(row.packing_items || row.packingItems || []).map(item => ({ id:item.id, item:item.item, packed:!!item.packed })),
+  documents:(row.documents || []).map(doc => ({
+    id:doc.id,
+    tripId:doc.trip_id ?? doc.tripId,
+    activityId:doc.activity_id ?? doc.activityId ?? null,
+    name:doc.name || '',
+    type:doc.type || 'other',
+    storagePath:doc.storage_path ?? doc.storagePath ?? '',
+    mime:doc.mime || '',
+    notes:doc.notes || '',
+    createdAt:doc.created_at ?? doc.createdAt ?? ''
+  }))
 })
 
 export function TripProvider({ children }) {
@@ -107,7 +119,7 @@ export function TripProvider({ children }) {
       } else {
         const { data, error } = await supabase
           .from('trips')
-          .select('*, trip_members(*), trip_invitations(*), days(*, activities(*)), hotels(*), expenses(*), packing_items(*)')
+          .select('*, trip_members(*), trip_invitations(*), days(*, activities(*)), hotels(*), expenses(*), packing_items(*), documents(*)')
           .order('created_at', { ascending:false })
         if (error) throw error
         let profiles = {}
@@ -686,7 +698,8 @@ export function TripProvider({ children }) {
             latitude:values.latitude ?? null,
             longitude:values.longitude ?? null,
             cost,
-            costCurrency
+            costCurrency,
+            url:values.url || ''
           }
           updateActive(trip => ({ ...trip, hotels:[...trip.hotels, optimistic] }))
           const { data, error } = await supabase.from('hotels').insert({
@@ -699,7 +712,8 @@ export function TripProvider({ children }) {
             latitude:values.latitude ?? null,
             longitude:values.longitude ?? null,
             cost,
-            cost_currency:costCurrency
+            cost_currency:costCurrency,
+            url:values.url || null
           }).select('*').single()
           if (error) { await refresh(); throw error }
           const saved = mapTrip({ ...activeTrip, hotels:[data] }).hotels[0]
@@ -730,7 +744,7 @@ export function TripProvider({ children }) {
         toast('Eliminado', { type:'success', action:{ label:'Deshacer', onClick:async () => {
           if (!removed) return
           if (!hasSupabase) localStore.restoreHotel(activeTrip.id, removed)
-          else await supabase.from('hotels').insert({ trip_id:activeTrip.id, city:removed.city, name:removed.name, address:removed.address, check_in:removed.checkIn || null, check_out:removed.checkOut || null })
+          else await supabase.from('hotels').insert({ trip_id:activeTrip.id, city:removed.city, name:removed.name, address:removed.address, check_in:removed.checkIn || null, check_out:removed.checkOut || null, cost:removed.cost, cost_currency:removed.costCurrency, url:removed.url || null })
           await refresh()
         } } })
       }),
@@ -875,6 +889,62 @@ export function TripProvider({ children }) {
           await refresh()
         } } })
       }),
+
+      // Wallet (Cartera): sube el archivo a Supabase Storage (bucket privado
+      // "wallet", ruta {tripId}/...) y guarda la fila en documents. En modo
+      // local guarda el archivo como data URL para poder usarlo sin conexión.
+      addAttachment: ({ file, kind, title, activityId }) => run(async () => {
+        if (!activeTrip || !file) return
+        const name = (title || '').trim() || file.name || 'Archivo'
+        const type = kind || (file.type.startsWith('image/') ? 'image' : file.type === 'application/pdf' ? 'pdf' : 'other')
+        if (!hasSupabase) {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(reader.result)
+            reader.onerror = () => reject(new Error('No se pudo leer el archivo'))
+            reader.readAsDataURL(file)
+          })
+          updateActive(() => mapTrip(localStore.addDocument(activeTrip.id, { activityId:activityId || null, name, type, storagePath:dataUrl, mime:file.type })))
+          toast('Guardado en la cartera', 'success')
+          return
+        }
+        const ext = (file.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+        const path = `${activeTrip.id}/${crypto.randomUUID()}${ext ? `.${ext}` : ''}`
+        const { error:upError } = await supabase.storage.from('wallet').upload(path, file, { contentType:file.type || undefined, upsert:false })
+        if (upError) throw upError
+        const { data, error } = await supabase.from('documents').insert({
+          trip_id:activeTrip.id, activity_id:activityId || null, name, type,
+          storage_path:path, mime:file.type || '', created_by:user.id
+        }).select('*').single()
+        if (error) { await supabase.storage.from('wallet').remove([path]); await refresh(); throw error }
+        const saved = mapTrip({ ...activeTrip, documents:[data] }).documents[0]
+        updateActive(trip => ({ ...trip, documents:[...(trip.documents || []), saved] }))
+        toast('Guardado en la cartera', 'success')
+      }),
+
+      deleteAttachment: doc => run(async () => {
+        if (!activeTrip || !doc) return
+        updateActive(trip => ({ ...trip, documents:(trip.documents || []).filter(item => item.id !== doc.id) }))
+        if (!hasSupabase) { localStore.deleteDocument(activeTrip.id, doc.id); return }
+        if (doc.storagePath && !doc.storagePath.startsWith('data:')) await supabase.storage.from('wallet').remove([doc.storagePath])
+        const { error } = await supabase.from('documents').delete().eq('id', doc.id)
+        if (error) { await refresh(); throw error }
+        toast('Eliminado de la cartera', 'success')
+      }),
+
+      // Devuelve una URL mostrable: data URL tal cual, o una URL firmada del
+      // bucket privado (válida 1h). Vacío si no se pudo firmar.
+      signAttachment: async storagePath => {
+        if (!storagePath) return ''
+        if (storagePath.startsWith('data:') || storagePath.startsWith('http')) return storagePath
+        if (!hasSupabase) return ''
+        try {
+          const { data } = await supabase.storage.from('wallet').createSignedUrl(storagePath, 3600)
+          return data?.signedUrl || ''
+        } catch {
+          return ''
+        }
+      },
 
       loadChat: () => run(async () => {
         if (!activeTrip) return []

@@ -59,3 +59,24 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .chat-place-hero-overlay small{display:block;font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;opacity:.9}
 .chat-place-hero-overlay h4{margin:3px 0 0;font-size:18px;line-height:1.2;color:#fff}
 .chat-place-hero-overlay span{display:inline-block;margin-top:6px;font-size:11px;font-weight:800;background:rgba(255,255,255,.22);padding:3px 9px;border-radius:999px}
+
+.list-card-meta{display:flex;align-items:center;gap:12px;margin-top:6px!important}
+.list-card-meta b{font-size:12px;color:#7042ce}
+.list-card-meta a{font-size:11px;color:#347dc1;font-weight:800;text-decoration:none}
+.wallet-upload{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:18px;border:2px dashed #cbbaf2;border-radius:16px;background:#faf8ff;color:#7042ce;cursor:pointer;text-align:center}
+.wallet-upload span{font-weight:800;font-size:13px}
+.wallet-upload small{color:#9b91ad;font-size:10px}
+.wallet-filters{display:flex;gap:6px;flex-wrap:wrap}
+.wallet-filters button{padding:6px 11px;border-radius:999px;background:#f5f2fa;color:#8b789e;font-size:11px;font-weight:700;border:1px solid #ece6f6}
+.wallet-filters button.active{background:#eee8ff;color:#7042ce;border-color:#cbbaf2}
+.wallet-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.wallet-item{position:relative;background:white;border:1px solid #ece6f6;border-radius:15px;overflow:hidden;display:flex;flex-direction:column}
+.wallet-thumb{height:120px;background:#f1ecff;display:flex;align-items:center;justify-content:center;width:100%;padding:0;border:none;cursor:pointer}
+.wallet-thumb img{width:100%;height:100%;object-fit:cover}
+.wallet-icon{font-size:38px}
+.wallet-meta{padding:9px 11px;min-width:0}
+.wallet-meta b{font-size:12px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wallet-meta small{font-size:9px;color:#9b91ad}
+.wallet-item>.icon-btn{position:absolute;top:6px;right:6px;background:rgba(255,255,255,.92)}
+.wallet-preview{background:white;border-radius:18px;padding:14px;max-width:92vw;max-height:88vh;display:flex;flex-direction:column;gap:10px}
+.wallet-preview img,.wallet-preview iframe{max-width:100%;max-height:74vh;border-radius:12px;border:none;background:#f1ecff;width:100%}

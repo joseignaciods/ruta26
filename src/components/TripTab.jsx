@@ -16,14 +16,16 @@ export default function TripTab({ onOpenAssistant }) {
 
   return (
     <section>
-      <div className="section-heading"><div><h2>Viaje</h2><p>Reservas, gastos y equipaje</p></div></div>
+      <div className="section-heading"><div><h2>Viaje</h2><p>Reservas, gastos, cartera y equipaje</p></div></div>
       <div className="subtabs">
         <button className={section === 'hotels' ? 'active' : ''} onClick={() => setSection('hotels')}>Hoteles</button>
         <button className={section === 'expenses' ? 'active' : ''} onClick={() => setSection('expenses')}>Gastos</button>
+        <button className={section === 'wallet' ? 'active' : ''} onClick={() => setSection('wallet')}>Cartera</button>
         <button className={section === 'packing' ? 'active' : ''} onClick={() => setSection('packing')}>Equipaje</button>
       </div>
       {section === 'hotels' && <Hotels trip={activeTrip} />}
       {section === 'expenses' && <Expenses trip={activeTrip} />}
+      {section === 'wallet' && <Wallet trip={activeTrip} />}
       {section === 'packing' && <Packing trip={activeTrip} onOpenAssistant={onOpenAssistant} />}
     </section>
   )
@@ -33,7 +35,7 @@ function Hotels({ trip }) {
   const { user } = useAuth()
   const { addHotel, deleteHotel, searchPlaces } = useTrips()
   const members = trip.members.filter(member => member.status === 'active')
-  const emptyHotel = { name:'', city:'', address:'', checkIn:'', checkOut:'', latitude:null, longitude:null, cost:'', costCurrency:trip.currency || 'USD', register:false, paidBy:user.id, split:{} }
+  const emptyHotel = { name:'', city:'', address:'', checkIn:'', checkOut:'', latitude:null, longitude:null, cost:'', costCurrency:trip.currency || 'USD', url:'', register:false, paidBy:user.id, split:{} }
   const [form, setForm] = useState(emptyHotel)
   const [splitOpen, setSplitOpen] = useState(false)
   const [cityResults, setCityResults] = useState([])
@@ -105,7 +107,17 @@ function Hotels({ trip }) {
     <div className="stack">
       {trip.hotels.map(hotel => (
         <article className="list-card" key={hotel.id}>
-          <div><small>{hotel.city}</small><h3>{hotel.name}</h3><p>{[hotel.checkIn && `${formatDate(hotel.checkIn)} → ${formatDate(hotel.checkOut) || '?'}`, hotel.address].filter(Boolean).join(' · ')}</p></div>
+          <div>
+            <small>{hotel.city}</small>
+            <h3>{hotel.name}</h3>
+            <p>{[hotel.checkIn && `${formatDate(hotel.checkIn)} → ${formatDate(hotel.checkOut) || '?'}`, hotel.address].filter(Boolean).join(' · ')}</p>
+            {(hotel.cost > 0 || hotel.url) && (
+              <p className="list-card-meta">
+                {hotel.cost > 0 && <b>{hotel.cost} {hotel.costCurrency || trip.currency}</b>}
+                {hotel.url && <a href={hotel.url} target="_blank" rel="noreferrer">Abrir reserva ↗</a>}
+              </p>
+            )}
+          </div>
           <button className="icon-btn" onClick={() => deleteHotel(hotel.id)} aria-label="Eliminar hotel">✕</button>
         </article>
       ))}
@@ -138,6 +150,9 @@ function Hotels({ trip }) {
           <label>Costo <span className="optional-label">opcional</span><input type="number" min="0" step="0.01" placeholder="0" value={form.cost} onChange={e => setForm({ ...form, cost:e.target.value })} /></label>
           <label>Moneda<input value={form.costCurrency} onChange={e => setForm({ ...form, costCurrency:e.target.value.toUpperCase() })} /></label>
         </div>
+        <label>Enlace de la reserva <span className="optional-label">opcional</span>
+          <input type="url" inputMode="url" placeholder="https://booking.com/… o Airbnb" value={form.url} onChange={e => setForm({ ...form, url:e.target.value })} />
+        </label>
         {Number(form.cost) > 0 && (
           <label className="register-expense">
             <input type="checkbox" checked={form.register} onChange={e => setForm({ ...form, register:e.target.checked })} />
@@ -155,6 +170,151 @@ function Hotels({ trip }) {
         <SplitEditor amount={Number(form.cost) || 0} currency={form.costCurrency} members={members} currentUserId={user.id}
           value={{ paidBy:form.paidBy, split:form.split }} onCancel={() => setSplitOpen(false)}
           onSave={({ paidBy, split }) => { setForm(current => ({ ...current, paidBy, split })); setSplitOpen(false) }} />
+      )}
+    </div>
+  )
+}
+
+const WALLET_KINDS = [
+  { key:'ticket', label:'Ticket' },
+  { key:'qr', label:'QR' },
+  { key:'image', label:'Imagen' },
+  { key:'pdf', label:'PDF' },
+  { key:'other', label:'Otro' }
+]
+const KIND_LABEL = Object.fromEntries(WALLET_KINDS.map(item => [item.key, item.label]))
+const KIND_ICON = { ticket:'🎟', qr:'🔳', image:'🖼', pdf:'📄', other:'📎' }
+
+function Wallet({ trip }) {
+  const { addAttachment, deleteAttachment, signAttachment } = useTrips()
+  const fileRef = useRef(null)
+  const [pendingFile, setPendingFile] = useState(null)
+  const [title, setTitle] = useState('')
+  const [kind, setKind] = useState('ticket')
+  const [activityId, setActivityId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [filter, setFilter] = useState('all')
+  const [urls, setUrls] = useState({})
+  const [preview, setPreview] = useState(null)
+
+  const docs = trip.documents || []
+  const activities = useMemo(() => {
+    const list = []
+    for (const day of trip.days) for (const act of day.activities) list.push({ id:act.id, name:act.name, day:day.position })
+    return list
+  }, [trip.days])
+  const activityName = id => activities.find(item => item.id === id)?.name || 'Panorama'
+  const isImage = doc => doc.type === 'image' || (doc.mime || '').startsWith('image/') || (urls[doc.id] || '').startsWith('data:image')
+
+  // Firma las URLs del bucket privado (o usa el data URL en modo local).
+  useEffect(() => {
+    let alive = true
+    docs.forEach(doc => {
+      if (urls[doc.id] !== undefined || !doc.storagePath) return
+      signAttachment(doc.storagePath).then(url => { if (alive) setUrls(prev => ({ ...prev, [doc.id]:url })) })
+    })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docs])
+
+  const pickFile = event => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setPendingFile(file)
+    setTitle(file.name.replace(/\.[^.]+$/, ''))
+    setKind(file.type.startsWith('image/') ? 'image' : file.type === 'application/pdf' ? 'pdf' : 'ticket')
+  }
+
+  const save = async () => {
+    if (!pendingFile) return
+    setBusy(true)
+    const result = await addAttachment({ file:pendingFile, kind, title, activityId:activityId || null })
+    setBusy(false)
+    if (result !== null) {
+      setPendingFile(null); setTitle(''); setKind('ticket'); setActivityId('')
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const cancel = () => { setPendingFile(null); if (fileRef.current) fileRef.current.value = '' }
+  const taggedIds = [...new Set(docs.map(doc => doc.activityId).filter(Boolean))]
+  const visible = docs.filter(doc => filter === 'all' ? true : filter === 'general' ? !doc.activityId : doc.activityId === filter)
+
+  return (
+    <div className="stack">
+      <label className="wallet-upload">
+        <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={pickFile} hidden />
+        <span>+ Subir ticket, QR o imagen</span>
+        <small>Imágenes o PDF · se guardan en tu cartera</small>
+      </label>
+
+      {pendingFile && (
+        <div className="panel-card compact-form">
+          <h3>Guardar en la cartera</h3>
+          <label>Título<input value={title} onChange={event => setTitle(event.target.value)} placeholder="Ej. Entrada al museo" /></label>
+          <div className="two-cols">
+            <label>Tipo
+              <select value={kind} onChange={event => setKind(event.target.value)}>
+                {WALLET_KINDS.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
+              </select>
+            </label>
+            <label>Panorama <span className="optional-label">opcional</span>
+              <select value={activityId} onChange={event => setActivityId(event.target.value)}>
+                <option value="">— General —</option>
+                {activities.map(item => <option key={item.id} value={item.id}>D{item.day} · {item.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="ghost-btn" onClick={cancel}>Cancelar</button>
+            <button type="button" className="primary-btn compact" disabled={busy} onClick={save}>{busy ? 'Guardando…' : 'Guardar'}</button>
+          </div>
+        </div>
+      )}
+
+      {docs.length > 0 && (
+        <div className="wallet-filters">
+          <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>Todos</button>
+          <button className={filter === 'general' ? 'active' : ''} onClick={() => setFilter('general')}>Generales</button>
+          {taggedIds.map(id => (
+            <button key={id} className={filter === id ? 'active' : ''} onClick={() => setFilter(id)}>{activityName(id)}</button>
+          ))}
+        </div>
+      )}
+
+      {visible.length === 0 ? (
+        <div className="empty-panel"><p>Tu cartera está vacía. Sube tus tickets, QR o reservas para tenerlos a mano.</p></div>
+      ) : (
+        <div className="wallet-grid">
+          {visible.map(doc => (
+            <article className="wallet-item" key={doc.id}>
+              <button type="button" className="wallet-thumb" onClick={() => urls[doc.id] && setPreview({ ...doc, url:urls[doc.id] })}>
+                {isImage(doc) && urls[doc.id]
+                  ? <img src={urls[doc.id]} alt={doc.name} loading="lazy" />
+                  : <span className="wallet-icon">{KIND_ICON[doc.type] || '📎'}</span>}
+              </button>
+              <div className="wallet-meta">
+                <b>{doc.name}</b>
+                <small>{[KIND_LABEL[doc.type] || 'Archivo', doc.activityId ? activityName(doc.activityId) : 'General'].join(' · ')}</small>
+              </div>
+              <button className="icon-btn" onClick={() => deleteAttachment(doc)} aria-label="Eliminar de la cartera">✕</button>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {preview && (
+        <div className="modal-backdrop" onClick={() => setPreview(null)}>
+          <div className="wallet-preview" onClick={event => event.stopPropagation()}>
+            {(preview.type === 'image' || (preview.mime || '').startsWith('image/') || preview.url.startsWith('data:image'))
+              ? <img src={preview.url} alt={preview.name} />
+              : <iframe title={preview.name} src={preview.url} />}
+            <div className="modal-actions">
+              <a className="ghost-btn" href={preview.url} target="_blank" rel="noreferrer">Abrir ↗</a>
+              <button type="button" className="primary-btn compact" onClick={() => setPreview(null)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
