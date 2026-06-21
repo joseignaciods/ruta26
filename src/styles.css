@@ -44,3 +44,5 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 @media(max-width:600px){.admin-usage-overview,.admin-user-meters{grid-template-columns:1fr}.usage-meter>strong{font-size:19px}.admin-user-row{min-height:86px}.admin-usage{flex-direction:column!important;gap:2px}.admin-usage-overview{margin-bottom:14px}}
 
 .route-actions{grid-template-columns:1fr}.route-secondary{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.route-secondary button{padding:7px 11px;border-radius:999px;background:#f5f2fa;color:#8b789e;font-size:11px;font-weight:700;border:1px solid #ece6f6}.route-secondary button:hover{background:#ede9fe;color:#7042ce}
+
+.chat-place-actions a{margin-right:0}.chat-place-actions a,.chat-place-actions button{flex:1 1 0;min-width:0}
