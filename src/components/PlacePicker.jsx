@@ -11,6 +11,7 @@ import { resolveSplit } from '../lib/computeBalances.js'
 import SplitEditor from './SplitEditor.jsx'
 
 const isExternalId = locationId => Boolean(locationId) && !String(locationId).startsWith('local-')
+const isTripadvisorId = locationId => isExternalId(locationId) && !String(locationId).startsWith('wiki-')
 const hasCoords = place => place.latitude != null && place.longitude != null
 const placeKey = place => place.locationId || place.tripadvisorUrl || place.name
 const fmtDistance = km => km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`
@@ -201,7 +202,10 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       const locationId = place.locationId
       if (!isExternalId(locationId) || photosRef.current[locationId]) return
       photosRef.current[locationId] = true
-      fetchPlacePhoto(locationId).then(url => setPhotos(prev => ({ ...prev, [locationId]:url })))
+      // Wikipedia/OpenTripMap ya traen la foto en el resultado; solo Tripadvisor
+      // requiere una llamada extra (que gasta cuota).
+      if (place.imageUrl) { setPhotos(prev => ({ ...prev, [locationId]:place.imageUrl })); return }
+      if (isTripadvisorId(locationId)) fetchPlacePhoto(locationId).then(url => setPhotos(prev => ({ ...prev, [locationId]:url })))
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [places])
@@ -274,8 +278,8 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     priceLabel:place?.priceLevel || '',
     latitude:place?.latitude ?? null,
     longitude:place?.longitude ?? null,
-    tripadvisorLocationId:place && isExternalId(place.locationId) ? place.locationId : '',
-    imageUrl:place && photos[place.locationId] ? photos[place.locationId] : '',
+    tripadvisorLocationId:place && isTripadvisorId(place.locationId) ? place.locationId : '',
+    imageUrl:place ? (photos[place.locationId] || place.imageUrl || '') : '',
     ...overrides
   })
 
@@ -400,7 +404,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
                 )}
                 {place.address && <p className="chat-place-address">{place.address}</p>}
                 <div className="chat-place-actions">
-                  {place.tripadvisorUrl && <a href={place.tripadvisorUrl} target="_blank" rel="noreferrer">Ver detalles ↗</a>}
+                  {(place.tripadvisorUrl || place.url) && <a href={place.tripadvisorUrl || place.url} target="_blank" rel="noreferrer">Ver detalles ↗</a>}
                   <button type="button" className="picker-tune-btn" onClick={() => openConfirm(place)}>Ajustar</button>
                   <button type="button" className={added ? 'added' : ''} onClick={() => quickAdd(place)} disabled={added}>
                     {added ? '✓ Agregado' : '+ Agregar'}
@@ -418,6 +422,9 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
           )}
           {!busy && provider === 'tripadvisor' && (
             <p className="provider-note">Resultados consultados en vivo en Tripadvisor. Al agregar uno solo guardamos nombre, dirección y ubicación.</p>
+          )}
+          {!busy && provider === 'wikipedia' && (
+            <p className="provider-note">Lugares e imágenes de Wikipedia / Wikimedia Commons · datos abiertos, sin costo.</p>
           )}
         </div>
       ) : (

@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js'
 import { getPlaceDetails, getPlacePhoto, hasTripadvisor, nearbyPlaces, searchPlaces } from '../_shared/travel-places.ts'
+import { searchWikiPlaces } from '../_shared/wiki-places.ts'
 import { loadSettings, UserQuotaExceededError } from '../_shared/quota.ts'
 
 const cors = {
@@ -26,13 +27,38 @@ Deno.serve(async request => {
     )
     const { data:{ user } } = await supabase.auth.getUser()
     if (!user) return json({ error:'Unauthorized' }, 401)
+    const body = await request.json()
+
+    // Atracciones (todo lo que no es comida ni hoteles) → Wikipedia/Wikimedia:
+    // gratis, sin API key y sin gastar cuota de Tripadvisor. Comida y hoteles
+    // siguen en Tripadvisor (datos abiertos son flojos ahí). Aplica a búsqueda
+    // por texto y a "buscar en esta zona" (nearby).
+    const wantsWiki = body.category !== 'restaurants' && body.category !== 'hotels'
+    if (wantsWiki && (!body.action || body.action === 'search' || body.action === 'nearby')) {
+      try {
+        const places = await searchWikiPlaces({
+          query:body.action === 'nearby' ? '' : body.query,
+          city:body.city,
+          latitude:body.latitude,
+          longitude:body.longitude,
+          radiusKm:body.radiusKm,
+          language:body.language,
+          limit:body.limit
+        })
+        return json({ provider:'wikipedia', places, externalContent:false })
+      } catch (error) {
+        console.warn('Wikipedia search failed', error)
+        return json({ provider:'wikipedia', places:[], externalContent:false })
+      }
+    }
+
+    // De aquí en adelante se usa Tripadvisor: validar configuración + kill switch.
     if (!hasTripadvisor()) return json({ error:'Tripadvisor no está configurado' }, 503)
     const settings = await loadSettings()
     if (!settings.taEnabled) {
       return json({ error:'La búsqueda de lugares está desactivada por el administrador.', killSwitch:true, quotaExceeded:true }, 429)
     }
 
-    const body = await request.json()
     if (body.action === 'details') {
       if (!body.locationId) return json({ error:'locationId es requerido' }, 400)
       const place = await getPlaceDetails(body.locationId, {
