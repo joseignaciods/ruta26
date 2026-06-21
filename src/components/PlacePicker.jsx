@@ -364,11 +364,13 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
                     <small>{categoryFor(inferCategory(place, intent.category)).label}</small>
                     <h4>{place.name}</h4>
                   </div>
+                </div>
+                {(place.rating != null && place.rating !== 0) || place.priceLevel ? (
                   <div className="chat-place-badges">
                     {place.rating != null && place.rating !== 0 && <span aria-label={`Calificación ${Number(place.rating).toFixed(1)} de 5`}>★ {Number(place.rating).toFixed(1)}/5</span>}
                     {place.priceLevel && <b title="Rango de precio informado por Tripadvisor">{place.priceLevel}</b>}
                   </div>
-                </div>
+                ) : null}
                 {(place.ranking || place.reviewCount || distance != null) && (
                   <p className="chat-place-meta">
                     {[place.ranking, place.reviewCount ? `${place.reviewCount} opiniones` : '', distance != null ? `a ${fmtDistance(distance)}` : ''].filter(Boolean).join(' · ')}
