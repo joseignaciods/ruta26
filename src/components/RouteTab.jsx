@@ -223,7 +223,11 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                   const category = categoryFor(activity.category)
                   return (
                     <div className={`activity-line category-${category.id}`} key={activity.id}>
-                      <div className="activity-category-icon"><CategoryIcon name={category.id} /></div>
+                      <div className="activity-category-icon">
+                        {activity.imageUrl
+                          ? <img src={activity.imageUrl} alt="" loading="lazy" onError={event => { event.currentTarget.style.display = 'none' }} />
+                          : <CategoryIcon name={category.id} />}
+                      </div>
                       <button type="button" className="activity-copy" onClick={() => editActivity(day, activity)}>
                         <span>{[activity.time || 'Sin hora', activity.duration, category.label].filter(Boolean).join(' · ')}</span>
                         <h4>{activity.name}</h4>

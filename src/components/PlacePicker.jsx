@@ -267,6 +267,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     latitude:place?.latitude ?? null,
     longitude:place?.longitude ?? null,
     tripadvisorLocationId:place && isExternalId(place.locationId) ? place.locationId : '',
+    imageUrl:place && photos[place.locationId] ? photos[place.locationId] : '',
     ...overrides
   })
 

@@ -324,7 +324,8 @@ export function TripProvider({ children }) {
               time:activity.time || null, duration:activity.duration || '', category:activity.category,
               address:activity.address, latitude:activity.latitude, longitude:activity.longitude,
               price_label:activity.priceLabel, done:activity.done,
-              tripadvisor_location_id:activity.tripadvisorLocationId || null
+              tripadvisor_location_id:activity.tripadvisorLocationId || null,
+              image_url:activity.imageUrl || null
             })))
           }
           await refresh()
@@ -416,6 +417,7 @@ export function TripProvider({ children }) {
             latitude,
             longitude,
             tripadvisorLocationId:values.tripadvisorLocationId || '',
+            imageUrl:values.imageUrl || '',
             done:false
           }
           updateActive(trip => ({ ...trip, days:trip.days.map(item => item.id === dayId ? { ...item, activities:[...item.activities, optimistic].sort(byPosition) } : item) }))
@@ -433,7 +435,8 @@ export function TripProvider({ children }) {
             expense_currency:expenseCurrency,
             latitude,
             longitude,
-            tripadvisor_location_id:values.tripadvisorLocationId || null
+            tripadvisor_location_id:values.tripadvisorLocationId || null,
+            image_url:values.imageUrl || null
           }).select('*').single()
           if (error) { await refresh(); throw error }
           updateActive(trip => ({ ...trip, days:trip.days.map(item => item.id === dayId ? { ...item, activities:item.activities.map(activity => activity.id === temporaryId ? mapActivity(data) : activity).sort(byPosition) } : item) }))
@@ -645,7 +648,8 @@ export function TripProvider({ children }) {
             time:removed.time || null, duration:removed.duration || '', category:removed.category,
             address:removed.address, latitude:removed.latitude, longitude:removed.longitude,
             price_label:removed.priceLabel, done:removed.done,
-            tripadvisor_location_id:removed.tripadvisorLocationId || null
+            tripadvisor_location_id:removed.tripadvisorLocationId || null,
+            image_url:removed.imageUrl || null
           })
           await refresh()
         } } })

@@ -332,6 +332,7 @@ export const localStore = {
       latitude:values.latitude ?? null,
       longitude:values.longitude ?? null,
       tripadvisorLocationId:values.tripadvisorLocationId || '',
+      imageUrl:values.imageUrl || '',
       done:!!values.done
     })
     write(TRIPS_KEY, trips)
