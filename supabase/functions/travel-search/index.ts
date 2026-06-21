@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js'
-import { getPlaceDetails, hasTripadvisor, nearbyPlaces, searchPlaces } from '../_shared/travel-places.ts'
+import { getPlaceDetails, getPlacePhoto, hasTripadvisor, nearbyPlaces, searchPlaces } from '../_shared/travel-places.ts'
 import { loadSettings, UserQuotaExceededError } from '../_shared/quota.ts'
 
 const cors = {
@@ -41,6 +41,21 @@ Deno.serve(async request => {
         userId:user.id
       })
       return json({ provider:'tripadvisor', place, externalContent:true })
+    }
+
+    if (body.action === 'photos') {
+      if (!body.locationId) return json({ error:'locationId es requerido' }, 400)
+      try {
+        const photo = await getPlacePhoto(body.locationId, { language:body.language, userId:user.id })
+        return json({ provider:'tripadvisor', photo, externalContent:true })
+      } catch (error) {
+        // Las fotos degradan a placeholder en vez de romper: si se acabó la cuota
+        // devolvemos url vacía con 200 para no llenar de errores el front.
+        if (error instanceof UserQuotaExceededError || (error instanceof Error && error.message.includes('monthly limit reached'))) {
+          return json({ provider:'tripadvisor', photo:{ url:'', attribution:'' }, limitReached:true })
+        }
+        throw error
+      }
     }
 
     if (body.action === 'nearby') {

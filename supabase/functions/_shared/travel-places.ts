@@ -83,6 +83,31 @@ export async function getPlaceDetails(
   return normalizePlace(data)
 }
 
+// Una sola foto del lugar (espejo de getPlaceDetails). Cada llamada consume 1
+// unidad de cuota igual que un detalle, así que el front la pide bajo demanda y
+// la cachea. Devuelve url vacía si el lugar no tiene fotos.
+export async function getPlacePhoto(
+  locationId: string,
+  options: { language?: string, userId?: string } = {}
+) {
+  if (!options.userId) throw new Error('userId es requerido para consultar Tripadvisor')
+  await ensureAndConsumeTripadvisorQuota(options.userId, 1)
+  const data = await request(`/location/${encodeURIComponent(locationId)}/photos`, {
+    language:options.language || 'es',
+    limit:1
+  })
+  const first = ((data.data || []) as Record<string, unknown>[])[0]
+  if (!first) return { url:'', attribution:'' }
+  const images = first.images as Record<string, { url?: string }> | undefined
+  const pick = images?.large || images?.medium || images?.original || images?.small || images?.thumbnail
+  const source = first.source as Record<string, unknown> | undefined
+  const user = first.user as Record<string, unknown> | undefined
+  return {
+    url:String(pick?.url || ''),
+    attribution:String(source?.localized_name || user?.username || 'Tripadvisor')
+  }
+}
+
 const enrichMatches = async (
   matches: Record<string, unknown>[],
   options: { language?: string, currency?: string, userId?: string }

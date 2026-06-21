@@ -16,7 +16,7 @@ const placeKey = place => place.locationId || place.tripadvisorUrl || place.name
 const fmtDistance = km => km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`
 
 export default function PlacePicker({ day, initialIntent = 'top', initialView = 'list', onClose }) {
-  const { activeTrip, addActivity, searchPlaces, searchNearbyPlaces } = useTrips()
+  const { activeTrip, addActivity, searchPlaces, searchNearbyPlaces, fetchPlacePhoto } = useTrips()
   const { user } = useAuth()
   const expenseMembers = (activeTrip.members || []).filter(member => member.status === 'active')
   const [splitOpen, setSplitOpen] = useState(false)
@@ -36,6 +36,8 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const [geoAnchor, setGeoAnchor] = useState(null)
   const [geoBusy, setGeoBusy] = useState(false)
   const [geoError, setGeoError] = useState('')
+  const [photos, setPhotos] = useState({})
+  const photosRef = useRef({})
   const panelRef = useRef(null)
   const mapElRef = useRef(null)
   const mapRef = useRef(null)
@@ -183,6 +185,18 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     return () => clearTimeout(searchTimer.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveAnchor, intentKey, query])
+
+  // Foto por resultado (modo generoso: una por tarjeta visible). Se piden una
+  // sola vez por locationId en la sesión (photosRef) y se cachean en TripContext.
+  useEffect(() => {
+    places.forEach(place => {
+      const locationId = place.locationId
+      if (!isExternalId(locationId) || photosRef.current[locationId]) return
+      photosRef.current[locationId] = true
+      fetchPlacePhoto(locationId).then(url => setPhotos(prev => ({ ...prev, [locationId]:url })))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [places])
 
   useEffect(() => {
     if (view !== 'map' || !mapElRef.current) return
@@ -338,6 +352,13 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
               : null
             return (
               <article className="chat-place-card" key={placeKey(place)}>
+                {isExternalId(place.locationId) && (
+                  <div className="chat-place-photo">
+                    {photos[place.locationId]
+                      ? <img src={photos[place.locationId]} alt="" loading="lazy" onError={() => setPhotos(prev => ({ ...prev, [place.locationId]:'' }))} />
+                      : <CategoryIcon name={inferCategory(place, intent.category)} />}
+                  </div>
+                )}
                 <div className="chat-place-heading">
                   <div>
                     <small>{categoryFor(inferCategory(place, intent.category)).label}</small>

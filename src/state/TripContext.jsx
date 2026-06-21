@@ -607,6 +607,27 @@ export function TripProvider({ children }) {
         }
       },
 
+      // Foto del lugar bajo demanda (1 unidad de cuota Tripadvisor). Cachea
+      // incluso el "sin foto" para no reintentar, y falla en silencio: el picker
+      // muestra un placeholder de categoría si no hay url.
+      fetchPlacePhoto: async locationId => {
+        if (!locationId || String(locationId).startsWith('local-') || !hasSupabase) return ''
+        try {
+          const cacheKey = placeCacheKey(['photo', locationId])
+          const cached = readPlaceCache(cacheKey)
+          if (cached) return cached.url || ''
+          const { data, error } = await supabase.functions.invoke('travel-search', {
+            body:{ action:'photos', locationId, language:'es' }
+          })
+          if (error || data?.error) { writePlaceCache(cacheKey, { url:'' }); return '' }
+          const url = data?.photo?.url || ''
+          writePlaceCache(cacheKey, { url })
+          return url
+        } catch {
+          return ''
+        }
+      },
+
       deleteActivity: (dayId, activityId) => run(async () => {
         if (!activeTrip) return
         const removed = activeTrip.days.find(day => day.id === dayId)?.activities.find(item => item.id === activityId)
