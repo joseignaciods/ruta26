@@ -103,9 +103,21 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .gen-segment button{flex:1;padding:10px 6px;font-size:12px;font-weight:700;color:#6b5b8a;background:white}
 .gen-segment button.active{background:var(--grad);color:white}
 .gen-segment button+button{border-left:1px solid #e0d3f8}
-.gen-subchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
-.gen-subchips button{padding:6px 11px;border-radius:999px;border:1px solid #e0d3f8;background:white;color:#5b4b7a;font-size:11px;font-weight:700}
-.gen-subchips button.active{background:#f1ebfd;border-color:#8b5cf6;color:#6d28d9}
+.multiselect{position:relative}
+.multiselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 13px;border:1px solid #e0d3f8;border-radius:13px;background:white;color:#9186a5;font-size:14px;font-weight:600;text-align:left}
+.multiselect-trigger .has-value{color:#1e1040;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.multiselect-trigger svg{flex:0 0 auto;width:16px;height:16px;stroke:#8b5cf6;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
+.multiselect.open .multiselect-trigger svg{transform:rotate(180deg)}
+.multiselect-panel{margin-top:5px;border:1px solid #e0d3f8;border-radius:13px;background:white;box-shadow:0 10px 30px #1e10401a;padding:6px;display:flex;flex-direction:column;gap:4px}
+.multiselect-search{padding:9px 11px;font-size:13px;border-radius:10px}
+.multiselect-clear{text-align:left;padding:6px 8px;font-size:11px;font-weight:800;color:#8b5cf6}
+.multiselect-list{max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.multiselect-option{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;font-size:13px;color:#3a1d6e;text-align:left}
+.multiselect-option:hover{background:#f6f2fd}
+.multiselect-option.checked{background:#f1ebfd;color:#6d28d9;font-weight:700}
+.ms-check{flex:0 0 auto;width:17px;height:17px;border-radius:5px;border:1.5px solid #cbb9ee;display:grid;place-items:center;font-size:11px;color:white;background:white}
+.multiselect-option.checked .ms-check{background:#8b5cf6;border-color:#8b5cf6}
+.multiselect-empty{padding:10px;text-align:center;color:#9186a5;font-size:11px}
 .gen-textarea{width:100%;border:1px solid #e0d3f8;border-radius:13px;padding:11px;font:inherit;font-size:14px;resize:vertical;background:white}
 .gen-switch{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:9px;font-size:12px;color:#3a1d6e;font-weight:600}
 .gen-switch input{flex:0 0 auto}

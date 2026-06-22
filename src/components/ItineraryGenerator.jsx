@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTrips } from '../state/TripContext.jsx'
 import CategoryIcon, { categoryFor } from './CategoryIcon.jsx'
+import MultiSelect from './MultiSelect.jsx'
 
 // Tipos de día (mapean a las claves que entiende la edge function generate-itinerary).
 const DAY_TYPES = [
@@ -11,8 +12,20 @@ const DAY_TYPES = [
 ]
 // Subtipos opcionales que aparecen al elegir Gastronomía / Cultura. Las cocinas
 // además afinan la búsqueda en Tripadvisor; los tipos de cultura guían a la IA.
-const CUISINES = ['Pizza', 'Sushi', 'Mexicana', 'Thai', 'Italiana', 'Hamburguesas', 'Mariscos', 'Café', 'Comida local']
-const CULTURE_TYPES = ['Museos', 'Iglesias y templos', 'Edificios históricos', 'Arte y galerías', 'Monumentos']
+const CUISINES = [
+  'Italiana', 'Peruana', 'Japonesa', 'Sushi', 'Mariscos', 'Parrilla', 'Comida local', 'Mexicana', 'China',
+  'Hamburguesas', 'Pizza', 'Pastas', 'Mediterránea', 'Española', 'Tapas', 'Francesa', 'Tailandesa', 'India',
+  'Café', 'Heladería', 'Comida rápida', 'Comida callejera', 'Vegetariana', 'Vegana', 'Saludable', 'Bar',
+  'Cervecería', 'Vinoteca', 'Contemporánea', 'Fusión', 'Internacional', 'Argentina', 'Brasileña', 'Americana',
+  'Coreana', 'Vietnamita', 'Árabe', 'Libanesa', 'Griega', 'Turca', 'Venezolana', 'Colombiana', 'Caribeña',
+  'Panadería', 'Sándwiches', 'Sopas', 'Asiática', 'Steakhouse', 'Portuguesa', 'Alemana'
+]
+const CULTURE_TYPES = [
+  'Museos', 'Museos de arte', 'Sitios históricos', 'Puntos de interés y monumentos', 'Iglesias y catedrales',
+  'Sitios religiosos', 'Monumentos y estatuas', 'Edificios y arquitectura', 'Castillos', 'Ruinas y sitios arqueológicos',
+  'Galerías de arte', 'Barrios emblemáticos', 'Mercados', 'Parques', 'Jardines', 'Miradores y torres',
+  'Teatros y ópera', 'Puentes', 'Naturaleza y vida silvestre', 'Playas', 'Paseos escénicos', 'Plazas y fuentes'
+]
 const PACES = [
   { id:'relaxed', label:'Relajado' },
   { id:'balanced', label:'Equilibrado' },
@@ -105,14 +118,7 @@ export default function ItineraryGenerator({ dayIds, onClose }) {
     }))
   }, [drafts, fetchPlacePhoto])
 
-  const toggleDayType = id => setDayTypes(list => {
-    const next = list.includes(id) ? list.filter(x => x !== id) : [...list, id]
-    if (!next.includes('food')) setCuisines([])
-    if (!next.includes('culture')) setCultureTypes([])
-    return next
-  })
-  const toggleCuisine = value => setCuisines(list => (list.includes(value) ? list.filter(x => x !== value) : [...list, value]))
-  const toggleCulture = value => setCultureTypes(list => (list.includes(value) ? list.filter(x => x !== value) : [...list, value]))
+  const toggleDayType = id => setDayTypes(list => (list.includes(id) ? list.filter(x => x !== id) : [...list, id]))
   const toggleDay = id => setSelected(list => (list.includes(id) ? list.filter(x => x !== id) : [...list, id]))
 
   const generate = async () => {
@@ -126,11 +132,7 @@ export default function ItineraryGenerator({ dayIds, onClose }) {
     for (let i = 0; i < selectedDays.length; i++) {
       const day = selectedDays[i]
       setProgress({ current:i + 1, total:selectedDays.length, city:day.city })
-      const data = await generateItinerary({
-        dayId:day.id, dayTypes, pace, freeText, avoidUsed, extraExclude,
-        cuisines: dayTypes.includes('food') ? cuisines : [],
-        cultureTypes: dayTypes.includes('culture') ? cultureTypes : []
-      })
+      const data = await generateItinerary({ dayId:day.id, dayTypes, pace, freeText, avoidUsed, cuisines, cultureTypes, extraExclude })
       const plan = data?.plan
       results.push({
         dayId:day.id,
@@ -223,20 +225,16 @@ export default function ItineraryGenerator({ dayIds, onClose }) {
                 </button>
               ))}
             </div>
-            {dayTypes.includes('food') && (
-              <div className="gen-subchips" aria-label="Tipo de cocina">
-                {CUISINES.map(item => (
-                  <button type="button" key={item} className={cuisines.includes(item) ? 'active' : ''} onClick={() => toggleCuisine(item)}>{item}</button>
-                ))}
-              </div>
-            )}
-            {dayTypes.includes('culture') && (
-              <div className="gen-subchips" aria-label="Tipo de cultura">
-                {CULTURE_TYPES.map(item => (
-                  <button type="button" key={item} className={cultureTypes.includes(item) ? 'active' : ''} onClick={() => toggleCulture(item)}>{item}</button>
-                ))}
-              </div>
-            )}
+          </section>
+
+          <section className="gen-field">
+            <label className="gen-label">Cocina <span className="optional-label">opcional</span></label>
+            <MultiSelect options={CUISINES} value={cuisines} onChange={setCuisines} placeholder="Cualquier cocina" />
+          </section>
+
+          <section className="gen-field">
+            <label className="gen-label">Interés cultural <span className="optional-label">opcional</span></label>
+            <MultiSelect options={CULTURE_TYPES} value={cultureTypes} onChange={setCultureTypes} placeholder="Cualquiera" />
           </section>
 
           <section className="gen-field">
