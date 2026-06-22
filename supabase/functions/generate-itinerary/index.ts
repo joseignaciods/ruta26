@@ -1,6 +1,6 @@
 import OpenAI from 'npm:openai'
 import { createClient } from 'npm:@supabase/supabase-js'
-import { hasTripadvisor, nearbyPlaces } from '../_shared/travel-places.ts'
+import { hasTripadvisor, nearbyPlaces, searchPlaces } from '../_shared/travel-places.ts'
 import { searchWikiPlaces } from '../_shared/wiki-places.ts'
 import { ensureAndConsumeUserQuota, loadSettings, recordOpenAIUsage, UserQuotaExceededError } from '../_shared/quota.ts'
 
@@ -91,10 +91,24 @@ Deno.serve(async request => {
 
     // deno-lint-ignore no-explicit-any
     let restaurants: any[] = []
+    const cuisines = ((prefs.cuisines || []) as string[]).filter(Boolean).slice(0, 3)
     const wantsFood = prefs.includeFood !== false
     if (wantsFood && hasTripadvisor() && settings.taEnabled) {
       try {
-        restaurants = await nearbyPlaces({ latitude: lat, longitude: lon, category: 'restaurants', radiusKm: 6, limit: 4, language, currency, userId: user.id })
+        if (cuisines.length) {
+          // Buscar por cada cocina elegida (sushi, mexicana, etc.) y combinar sin
+          // repetir; acota la cuota repartiendo el límite entre las cocinas.
+          const per = Math.max(1, Math.floor(5 / cuisines.length))
+          const seenFood = new Set<string>()
+          for (const cuisine of cuisines) {
+            const found = await searchPlaces({ query: cuisine, category: 'restaurants', latitude: lat, longitude: lon, radiusKm: 6, limit: per, language, currency, userId: user.id })
+            for (const place of found) {
+              if (place.locationId && !seenFood.has(place.locationId)) { seenFood.add(place.locationId); restaurants.push(place) }
+            }
+          }
+        } else {
+          restaurants = await nearbyPlaces({ latitude: lat, longitude: lon, category: 'restaurants', radiusKm: 6, limit: 4, language, currency, userId: user.id })
+        }
         meta.taConsumed = restaurants.length
       } catch (error) {
         // Cuota TA agotada o error: el día se arma solo con atracciones (degradación elegante).
@@ -164,6 +178,7 @@ Deno.serve(async request => {
     const pace = paceTargets[prefs.pace as string] || paceTargets.balanced
     const dayTypeLabel: Record<string, string> = { culture: 'cultura y museos', nature: 'aire libre y naturaleza', entertainment: 'entretención', food: 'gastronomía' }
     const dayTypes = ((prefs.dayTypes || []) as string[]).map(t => dayTypeLabel[t] || t).filter(Boolean)
+    const cultureTypes = ((prefs.cultureTypes || []) as string[]).filter(Boolean)
 
     const system = [
       'Eres un planificador de viajes experto. Armas el itinerario de UN solo día, realista y bien paceado. Respondes en español.',
@@ -174,6 +189,8 @@ Deno.serve(async request => {
       'Asigna a cada parada una hora de inicio (HH:MM, 24h) y una duración en minutos realista, en orden cronológico.',
       'Para cada parada incluye "whyPicked": una frase breve (máx 80 caracteres) que explique por qué vale la pena, sin copiar reseñas.',
       dayTypes.length ? `Prioriza este tipo de día: ${dayTypes.join(', ')}.` : 'Arma un día equilibrado: imperdibles + algo de comer.',
+      cuisines.length ? `Para las comidas prioriza estos tipos de cocina: ${cuisines.join(', ')}.` : '',
+      cultureTypes.length ? `En lo cultural prioriza: ${cultureTypes.join(', ')}.` : '',
       prefs.freeText ? `Instrucción del viajero (PRIORIDAD MÁXIMA, respétala): ${String(prefs.freeText).slice(0, 400)}` : '',
       'Responde SOLO con un objeto JSON válido, sin texto extra, con esta forma exacta:',
       '{"daySummary":"resumen corto del día, máx 90 caracteres","stops":[{"id":"<id de un candidato>","category":"culture|food|nature|entertainment","time":"HH:MM","durationMin":90,"sector":"sector o barrio","whyPicked":"frase breve"}]}'

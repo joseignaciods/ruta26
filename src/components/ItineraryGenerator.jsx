@@ -9,6 +9,10 @@ const DAY_TYPES = [
   { id:'entertainment', label:'Experiencias', icon:'entertainment' },
   { id:'food', label:'Gastronomía', icon:'food' }
 ]
+// Subtipos opcionales que aparecen al elegir Gastronomía / Cultura. Las cocinas
+// además afinan la búsqueda en Tripadvisor; los tipos de cultura guían a la IA.
+const CUISINES = ['Pizza', 'Sushi', 'Mexicana', 'Thai', 'Italiana', 'Hamburguesas', 'Mariscos', 'Café', 'Comida local']
+const CULTURE_TYPES = ['Museos', 'Iglesias y templos', 'Edificios históricos', 'Arte y galerías', 'Monumentos']
 const PACES = [
   { id:'relaxed', label:'Relajado' },
   { id:'balanced', label:'Equilibrado' },
@@ -41,6 +45,8 @@ export default function ItineraryGenerator({ dayIds, onClose }) {
 
   const [selected, setSelected] = useState(() => (dayIds?.length ? dayIds : (allDays[0] ? [allDays[0].id] : [])))
   const [dayTypes, setDayTypes] = useState([])
+  const [cuisines, setCuisines] = useState([])
+  const [cultureTypes, setCultureTypes] = useState([])
   const [pace, setPace] = useState('balanced')
   const [freeText, setFreeText] = useState('')
   const [avoidUsed, setAvoidUsed] = useState(true)
@@ -99,7 +105,14 @@ export default function ItineraryGenerator({ dayIds, onClose }) {
     }))
   }, [drafts, fetchPlacePhoto])
 
-  const toggleDayType = id => setDayTypes(list => (list.includes(id) ? list.filter(x => x !== id) : [...list, id]))
+  const toggleDayType = id => setDayTypes(list => {
+    const next = list.includes(id) ? list.filter(x => x !== id) : [...list, id]
+    if (!next.includes('food')) setCuisines([])
+    if (!next.includes('culture')) setCultureTypes([])
+    return next
+  })
+  const toggleCuisine = value => setCuisines(list => (list.includes(value) ? list.filter(x => x !== value) : [...list, value]))
+  const toggleCulture = value => setCultureTypes(list => (list.includes(value) ? list.filter(x => x !== value) : [...list, value]))
   const toggleDay = id => setSelected(list => (list.includes(id) ? list.filter(x => x !== id) : [...list, id]))
 
   const generate = async () => {
@@ -113,7 +126,11 @@ export default function ItineraryGenerator({ dayIds, onClose }) {
     for (let i = 0; i < selectedDays.length; i++) {
       const day = selectedDays[i]
       setProgress({ current:i + 1, total:selectedDays.length, city:day.city })
-      const data = await generateItinerary({ dayId:day.id, dayTypes, pace, freeText, avoidUsed, extraExclude })
+      const data = await generateItinerary({
+        dayId:day.id, dayTypes, pace, freeText, avoidUsed, extraExclude,
+        cuisines: dayTypes.includes('food') ? cuisines : [],
+        cultureTypes: dayTypes.includes('culture') ? cultureTypes : []
+      })
       const plan = data?.plan
       results.push({
         dayId:day.id,
@@ -206,6 +223,20 @@ export default function ItineraryGenerator({ dayIds, onClose }) {
                 </button>
               ))}
             </div>
+            {dayTypes.includes('food') && (
+              <div className="gen-subchips" aria-label="Tipo de cocina">
+                {CUISINES.map(item => (
+                  <button type="button" key={item} className={cuisines.includes(item) ? 'active' : ''} onClick={() => toggleCuisine(item)}>{item}</button>
+                ))}
+              </div>
+            )}
+            {dayTypes.includes('culture') && (
+              <div className="gen-subchips" aria-label="Tipo de cultura">
+                {CULTURE_TYPES.map(item => (
+                  <button type="button" key={item} className={cultureTypes.includes(item) ? 'active' : ''} onClick={() => toggleCulture(item)}>{item}</button>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="gen-field">

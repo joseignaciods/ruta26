@@ -505,7 +505,7 @@ export function TripProvider({ children }) {
       // Genera (SIN guardar) el itinerario de un día con IA. La edge function junta
       // candidatos (Wikipedia gratis + Tripadvisor comida), filtra los ya usados en
       // el viaje (exclude) y devuelve un plan editable. En modo local da un ejemplo.
-      generateItinerary: async ({ dayId, dayTypes = [], pace = 'balanced', freeText = '', avoidUsed = true, extraExclude = [] }) => {
+      generateItinerary: async ({ dayId, dayTypes = [], pace = 'balanced', freeText = '', avoidUsed = true, cuisines = [], cultureTypes = [], extraExclude = [] }) => {
         if (!activeTrip) return null
         const day = activeTrip.days.find(item => item.id === dayId)
         if (!day) return null
@@ -544,7 +544,7 @@ export function TripProvider({ children }) {
             body:{
               tripId:activeTrip.id,
               day:{ dayId:day.id, date:day.date || '', city:day.city, anchor:{ latitude:anchor.latitude, longitude:anchor.longitude, label:anchor.label } },
-              preferences:{ dayTypes, pace, freeText, avoidUsed },
+              preferences:{ dayTypes, pace, freeText, avoidUsed, cuisines, cultureTypes },
               exclude, language:'es', currency:activeTrip.currency
             }
           })
