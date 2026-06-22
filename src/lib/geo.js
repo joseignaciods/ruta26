@@ -34,6 +34,17 @@ export async function geocodeQuery(query) {
 
 export const geocodeCity = geocodeQuery
 
+// Guarda en la caché de geocoding el punto exacto de un lugar elegido en el
+// autocompletado, para que después `geocodeCity(day.city)` devuelva esas
+// coordenadas en vez de re-geocodificar el nombre suelto (que es ambiguo:
+// "Santiago" podría caer en Costa Rica). Falla en silencio si no hay storage.
+export function rememberPlace(query, lat, lon, label) {
+  if (!query || lat == null || lon == null) return
+  try {
+    localStorage.setItem(keyFor(query), JSON.stringify({ lat:Number(lat), lon:Number(lon), label:label || query }))
+  } catch { /* localStorage lleno o no disponible */ }
+}
+
 export const distanceKm = (first, second) => {
   const toRadians = value => value * Math.PI / 180
   const latDistance = toRadians(second[0] - first[0])
@@ -71,6 +82,50 @@ export async function searchCities(query) {
         longitude:Number(longitude)
       }
     })
+  localStorage.setItem(key, JSON.stringify(results))
+  return results
+}
+
+// Como searchCities pero para el día de un viaje: incluye cualquier lugar del
+// mapa (ciudades, pueblos, parques, hitos, paradas de un roadtrip), no solo
+// ciudades. Descarta calles y direcciones puntuales (demasiado finas). Devuelve
+// `name` corto para mostrar/guardar y `hint` (región) para desambiguar.
+export async function searchSpots(query) {
+  const clean = query?.trim()
+  if (!clean || clean.length < 2) return []
+  const key = `ruta26_spot_search_v1_${clean.toLowerCase()}`
+  const cached = localStorage.getItem(key)
+  if (cached) return JSON.parse(cached)
+  const params = new URLSearchParams({ limit:'12', q:clean })
+  const response = await fetch(`https://photon.komoot.io/api/?${params}`)
+  if (!response.ok) throw new Error('No se pudieron buscar lugares')
+  const data = await response.json()
+  const seen = new Set()
+  const results = (data.features || [])
+    .filter(feature => {
+      const properties = feature.properties || {}
+      return properties.name && properties.osm_key !== 'highway' && !properties.housenumber
+    })
+    .map(feature => {
+      const properties = feature.properties || {}
+      const [longitude, latitude] = feature.geometry?.coordinates || []
+      const hint = [properties.state, properties.country].filter(Boolean).join(', ')
+      return {
+        id:`${properties.osm_type || ''}-${properties.osm_id || properties.name}`,
+        name:properties.name,
+        label:[properties.name, hint].filter(Boolean).join(', '),
+        hint,
+        latitude:Number(latitude),
+        longitude:Number(longitude)
+      }
+    })
+    .filter(spot => {
+      const dedupe = spot.label.toLowerCase()
+      if (seen.has(dedupe)) return false
+      seen.add(dedupe)
+      return true
+    })
+    .slice(0, 6)
   localStorage.setItem(key, JSON.stringify(results))
   return results
 }

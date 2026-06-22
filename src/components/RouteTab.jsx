@@ -3,6 +3,7 @@ import { useTrips } from '../state/TripContext.jsx'
 import CategoryIcon, { categories, categoryFor } from './CategoryIcon.jsx'
 import { inferCategory, intentForCategory } from '../lib/intents.js'
 import { addDays, dayHotel, formatDate, suggestNextTime } from '../lib/planner.js'
+import { searchSpots, rememberPlace } from '../lib/geo.js'
 
 // Lazy para que Leaflet no entre al bundle inicial (igual que MapTab).
 const PlacePicker = lazy(() => import('./PlacePicker.jsx'))
@@ -30,6 +31,34 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
   const [acResults, setAcResults] = useState([])
   const [acOpen, setAcOpen] = useState(false)
   const acTimer = useRef(null)
+  const [daySpots, setDaySpots] = useState([])
+  const [daySpotsBusy, setDaySpotsBusy] = useState(false)
+  const daySpotTimer = useRef(null)
+
+  // Autocompletado del campo "Ciudad o lugar" del día: sugiere lugares reales
+  // del mapa (ciudades, pueblos, parques, paradas) para no escribir mal el
+  // nombre. Al elegir uno guardamos sus coordenadas exactas en la caché de
+  // geocoding (rememberPlace) para que el ancla del día sea precisa.
+  const changeDayCity = value => {
+    setDayForm(current => ({ ...current, city:value }))
+    clearTimeout(daySpotTimer.current)
+    if (value.trim().length < 2) { setDaySpots([]); return }
+    daySpotTimer.current = setTimeout(async () => {
+      setDaySpotsBusy(true)
+      try { setDaySpots(await searchSpots(value)) } catch { setDaySpots([]) }
+      setDaySpotsBusy(false)
+    }, 350)
+  }
+
+  const chooseDaySpot = spot => {
+    rememberPlace(spot.name, spot.latitude, spot.longitude, spot.label)
+    setDayForm(current => ({ ...current, city:spot.name }))
+    setDaySpots([])
+  }
+
+  // Limpia sugerencias y timer cuando se cierra el modal o se desmonta.
+  useEffect(() => { if (!showDay) { setDaySpots([]); clearTimeout(daySpotTimer.current) } }, [showDay])
+  useEffect(() => () => clearTimeout(daySpotTimer.current), [])
 
   // Avisa al workspace para que oculte nav + FAB mientras el picker está abierto.
   useEffect(() => {
@@ -339,7 +368,23 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
         <div className="modal-backdrop" onClick={() => setShowDay(false)}>
           <form className="modal-card" onSubmit={createDay} onClick={event => event.stopPropagation()}>
             <h2>{editingDayId ? 'Editar día' : 'Agregar día'}</h2>
-            <label>Ciudad<input autoFocus required value={dayForm.city} onChange={e => setDayForm({ ...dayForm, city:e.target.value })} /></label>
+            <label className="autocomplete-field">Ciudad o lugar
+              <input autoFocus required autoComplete="off" value={dayForm.city}
+                onChange={e => changeDayCity(e.target.value)}
+                placeholder="Ciudad, pueblo, parque, parada..." />
+              {(daySpotsBusy || daySpots.length > 0) && (
+                <div className="autocomplete-results">
+                  {daySpotsBusy
+                    ? <span>Buscando lugares...</span>
+                    : daySpots.map(spot => (
+                        <button type="button" key={spot.id} onClick={() => chooseDaySpot(spot)}>
+                          {spot.name}
+                          {spot.hint && <small>{spot.hint}</small>}
+                        </button>
+                      ))}
+                </div>
+              )}
+            </label>
             <label>Título<input value={dayForm.title} onChange={e => setDayForm({ ...dayForm, title:e.target.value })} /></label>
             <label>Fecha<input type="date" value={dayForm.date} onChange={e => setDayForm({ ...dayForm, date:e.target.value })} /></label>
             <div className="modal-actions">
