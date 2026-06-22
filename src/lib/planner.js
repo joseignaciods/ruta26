@@ -9,17 +9,28 @@ export function dayHotel(day, hotels = []) {
   ) || null
 }
 
-// Punto de referencia del día para buscar lugares cercanos: hotel, primer
-// panorama ubicado o, como último recurso, el centro geocodificado de la ciudad.
+const samePlace = (a, b) => a && b && a.trim().toLowerCase() === b.trim().toLowerCase()
+
+// Punto de referencia del día para buscar lugares cercanos. CLAVE para roadtrips:
+// el día puede estar en un lugar distinto al hotel (ej. paso por Valley of Fire
+// pero el hotel sigue en Las Vegas). Por eso la CIUDAD/LUGAR del día manda; el
+// hotel solo se usa de ancla si está en el mismo lugar (ahí da coords exactas).
 export async function dayAnchor(day, hotels = []) {
   const hotel = dayHotel(day, hotels)
-  if (located(hotel)) return { latitude:hotel.latitude, longitude:hotel.longitude, label:hotel.name }
-  const activity = (day.activities || []).find(located)
-  if (activity) return { latitude:activity.latitude, longitude:activity.longitude, label:activity.name }
+  // 1) Hotel del día, SOLO si está en la misma ciudad/lugar del día.
+  if (located(hotel) && samePlace(hotel.city, day.city)) {
+    return { latitude:hotel.latitude, longitude:hotel.longitude, label:hotel.name }
+  }
+  // 2) Ciudad/lugar del día (el autocompletado cachea sus coords exactas).
   try {
     const point = await geocodeCity(day.city)
     if (point) return { latitude:point.lat, longitude:point.lon, label:`el centro de ${day.city}` }
-  } catch { /* sin ancla igual se puede buscar por texto */ }
+  } catch { /* seguimos con los fallbacks */ }
+  // 3) Primer panorama ya ubicado del día.
+  const activity = (day.activities || []).find(located)
+  if (activity) return { latitude:activity.latitude, longitude:activity.longitude, label:activity.name }
+  // 4) Último recurso: el hotel aunque sea de otra ciudad.
+  if (located(hotel)) return { latitude:hotel.latitude, longitude:hotel.longitude, label:hotel.name }
   return null
 }
 
