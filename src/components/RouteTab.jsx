@@ -7,6 +7,7 @@ import { searchSpots, rememberPlace } from '../lib/geo.js'
 
 // Lazy para que Leaflet no entre al bundle inicial (igual que MapTab).
 const PlacePicker = lazy(() => import('./PlacePicker.jsx'))
+const ItineraryGenerator = lazy(() => import('./ItineraryGenerator.jsx'))
 
 const emptyActivity = { name:'', time:'', duration:'', address:'', priceLabel:'', category:'culture', latitude:null, longitude:null, tripadvisorLocationId:'' }
 
@@ -26,6 +27,7 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
   const [expandedId, setExpandedId] = useState(null)
   const [composerDayId, setComposerDayId] = useState(null)
   const [picker, setPicker] = useState(null)
+  const [generator, setGenerator] = useState(null)
   const [actForm, setActForm] = useState(emptyActivity)
   const [menuActivityId, setMenuActivityId] = useState(null)
   const [acResults, setAcResults] = useState([])
@@ -60,11 +62,14 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
   useEffect(() => { if (!showDay) { setDaySpots([]); clearTimeout(daySpotTimer.current) } }, [showDay])
   useEffect(() => () => clearTimeout(daySpotTimer.current), [])
 
-  // Avisa al workspace para que oculte nav + FAB mientras el picker está abierto.
+  // Avisa al workspace para que oculte nav + FAB mientras el picker o el
+  // generador de itinerario están abiertos (ambos son pantallas completas).
   useEffect(() => {
-    onPickerChange?.(Boolean(picker))
+    onPickerChange?.(Boolean(picker) || Boolean(generator))
     return () => onPickerChange?.(false)
-  }, [picker, onPickerChange])
+  }, [picker, generator, onPickerChange])
+
+  const openGenerator = dayIds => { closeComposer(); setGenerator({ dayIds }) }
 
   const createDay = async event => {
     event.preventDefault()
@@ -212,7 +217,12 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
     <section>
       <div className="section-heading">
         <div><h2>Ruta</h2><p>{activeTrip.days.length} días planificados</p></div>
-        <button className="primary-btn compact" onClick={() => openDayForm()}>+ Día</button>
+        <div className="route-heading-actions">
+          {activeTrip.days.length > 0 && (
+            <button className="ghost-btn compact gen-trigger" onClick={() => openGenerator(activeTrip.days.map(day => day.id))}>Autogenerar ✦</button>
+          )}
+          <button className="primary-btn compact" onClick={() => openDayForm()}>+ Día</button>
+        </div>
       </div>
 
       {activeTrip.days.length === 0 ? (
@@ -291,6 +301,9 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                   <button className="add-panorama-btn" onClick={() => openPicker(day)}>
                     <span>+</span><div><b>Agregar panorama</b><small>Lugares reales en {day.city}</small></div>
                   </button>
+                  <button className="gen-day-btn" onClick={() => openGenerator([day.id])}>
+                    <span>✦</span><div><b>Generar itinerario</b><small>La IA arma el día en {day.city}</small></div>
+                  </button>
                   <div className="route-secondary">
                     <button onClick={() => openPicker(day, 'top', 'map')}>Explorar mapa</button>
                     {dayHotel(day, activeTrip.hotels) && (
@@ -363,6 +376,12 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
           </Suspense>
         )
       })()}
+
+      {generator && (
+        <Suspense fallback={null}>
+          <ItineraryGenerator dayIds={generator.dayIds} onClose={() => setGenerator(null)} />
+        </Suspense>
+      )}
 
       {showDay && (
         <div className="modal-backdrop" onClick={() => setShowDay(false)}>

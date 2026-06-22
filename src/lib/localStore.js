@@ -340,6 +340,12 @@ export const localStore = {
     return trip
   },
 
+  addActivities(tripId, dayId, items) {
+    let trip
+    items.forEach(item => { trip = this.addActivity(tripId, dayId, item) })
+    return trip || getTrip(read(TRIPS_KEY, []), tripId)
+  },
+
   updateActivity(tripId, dayId, activityId, fields) {
     const trips = read(TRIPS_KEY, [])
     const trip = getTrip(trips, tripId)

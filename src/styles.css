@@ -80,3 +80,73 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .wallet-item>.icon-btn{position:absolute;top:6px;right:6px;background:rgba(255,255,255,.92)}
 .wallet-preview{background:white;border-radius:18px;padding:14px;max-width:92vw;max-height:88vh;display:flex;flex-direction:column;gap:10px}
 .wallet-preview img,.wallet-preview iframe{max-width:100%;max-height:74vh;border-radius:12px;border:none;background:#f1ecff;width:100%}
+
+/* --- Generador de itinerario con IA --- */
+.route-heading-actions{display:flex;align-items:center;gap:8px}
+.gen-trigger{padding:9px 13px;border-radius:999px;border:1px solid #d9ccf6;background:#f6f2fd;color:#6d28d9;font-weight:800;white-space:nowrap}
+.gen-day-btn{min-height:60px;border-radius:17px;padding:11px;text-align:left;display:flex;align-items:center;gap:9px;width:100%;margin-top:8px;background:linear-gradient(120deg,#f3effe,#fdf2fb);border:1px solid #e0d3f8;color:#3a1d6e}
+.gen-day-btn>span{flex:0 0 auto;width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--grad);color:white;font-size:16px}
+.gen-day-btn b{display:block;font-size:13px;color:#1e1040}
+.gen-day-btn small{color:#8b789e;font-size:10px}
+.gen-header-sub{margin-left:auto;color:#8b789e;font-size:11px;font-weight:700;white-space:nowrap}
+.gen-config{flex:1 1 auto;overflow-y:auto;padding:14px 16px 0;display:flex;flex-direction:column;gap:16px}
+.gen-field{display:flex;flex-direction:column;gap:8px}
+.gen-label{font-size:12px;font-weight:800;color:#1e1040}
+.gen-label .optional-label{font-weight:600;color:#a99cc0}
+.gen-day-chips{display:flex;flex-wrap:wrap;gap:7px}
+.gen-day-chips button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:7px 12px;border-radius:13px;border:1px solid #e0d3f8;background:white;color:#5b4b7a}
+.gen-day-chips button b{font-size:12px;color:#1e1040}
+.gen-day-chips button span{font-size:10px;color:#8b789e}
+.gen-day-chips button.active{background:#f1ebfd;border-color:#8b5cf6}
+.gen-types{flex-wrap:wrap}
+.gen-segment{display:flex;border:1px solid #e0d3f8;border-radius:13px;overflow:hidden}
+.gen-segment button{flex:1;padding:10px 6px;font-size:12px;font-weight:700;color:#6b5b8a;background:white}
+.gen-segment button.active{background:var(--grad);color:white}
+.gen-segment button+button{border-left:1px solid #e0d3f8}
+.gen-textarea{width:100%;border:1px solid #e0d3f8;border-radius:13px;padding:11px;font:inherit;font-size:14px;resize:vertical;background:white}
+.gen-switch{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:9px;font-size:12px;color:#3a1d6e;font-weight:600}
+.gen-switch input{flex:0 0 auto}
+.gen-switch input{width:18px;height:18px;accent-color:#8b5cf6}
+.gen-footer{flex-direction:column;gap:6px;border-top:none;padding-top:6px}
+.gen-footer small{color:#a99cc0;font-size:10px;text-align:center}
+.gen-go{font-size:15px}
+.gen-loading{flex:1 1 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px}
+.gen-spinner{font-size:30px;color:#8b5cf6;animation:gen-spin 1.5s linear infinite}
+@keyframes gen-spin{to{transform:rotate(360deg)}}
+.gen-progress{font-size:12px;font-weight:800;color:#1e1040;margin:0}
+.gen-narration{font-size:13px;color:#6b5b8a;margin:0}
+.gen-skeletons{width:100%;display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.gen-skeleton{height:62px;border-radius:14px;background:linear-gradient(100deg,#f1ecfa 30%,#e7defa 50%,#f1ecfa 70%);background-size:200% 100%;animation:gen-shimmer 1.3s ease-in-out infinite}
+@keyframes gen-shimmer{to{background-position:-200% 0}}
+.gen-preview{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.gen-preview-banner{margin:10px 16px 0;padding:9px 12px;border-radius:12px;background:#f6f2fd;color:#6d28d9;font-size:11px;font-weight:700;text-align:center}
+.gen-day-tabs{display:flex;gap:6px;overflow-x:auto;padding:10px 16px 0;flex:0 0 auto}
+.gen-day-tabs button{display:flex;align-items:center;gap:5px;padding:7px 13px;border-radius:999px;border:1px solid #e0d3f8;background:white;color:#5b4b7a;font-weight:700;white-space:nowrap;font-size:12px}
+.gen-day-tabs button small{background:#ece4fb;border-radius:999px;padding:0 6px;font-size:10px;color:#6d28d9}
+.gen-day-tabs button.active{background:var(--grad);color:white}
+.gen-day-tabs button.active small{background:#ffffff3d;color:white}
+.gen-day{flex:1 1 auto;overflow-y:auto;padding:10px 16px}
+.gen-day-summary{font-size:13px;color:#3a1d6e;font-weight:600;margin:6px 0}
+.gen-day-note{font-size:11px;color:#8b789e;margin:0 0 8px}
+.gen-timeline{display:flex;flex-direction:column;gap:9px}
+.gen-stop{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid #e6ddf6;border-radius:14px;background:white;box-shadow:0 3px 12px #6d4bc012;border-left:3px solid var(--cat,#8b5cf6)}
+.gen-stop.category-food{--cat:#f59e0b}
+.gen-stop.category-nature{--cat:#10b981}
+.gen-stop.category-culture{--cat:#8b5cf6}
+.gen-stop.category-entertainment{--cat:#c44e92}
+.gen-stop.category-transport{--cat:#64748b}
+.gen-stop-photo{flex:0 0 auto;width:54px;height:54px;border-radius:11px;overflow:hidden;background:#f3effb;display:grid;place-items:center}
+.gen-stop-photo img{width:100%;height:100%;object-fit:cover}
+.gen-stop-photo svg{width:22px;height:22px;fill:none;stroke:#b9a7da;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.gen-stop-body{flex:1;min-width:0}
+.gen-stop-meta{font-size:10px;font-weight:700;color:#9186a5;text-transform:uppercase;letter-spacing:.02em}
+.gen-stop-body h4{margin:2px 0;font-size:14px;color:#1e1040}
+.gen-sector{display:inline-block;font-size:10px;font-weight:700;color:#6d28d9;background:#f1ebfd;border-radius:999px;padding:1px 8px;margin-bottom:3px}
+.gen-why{font-size:11px;color:#6b5b8a;margin:3px 0 0;font-style:italic}
+.gen-stop-address{display:block;font-size:10px;color:#a99cc0;margin-top:3px}
+.gen-stop-controls{flex:0 0 auto;display:flex;flex-direction:column;gap:3px}
+.gen-stop-controls button{width:26px;height:22px;border-radius:7px;border:1px solid #eee9fa;background:#faf8ff;color:#6b5b8a;font-size:11px}
+.gen-stop-controls button:disabled{opacity:.35}
+.gen-preview-footer{gap:8px}
+.gen-preview-footer .primary-btn{width:auto;flex:1}
+.gen-preview-footer .ghost-btn{padding:13px 10px;border:1px solid #e6ddf6;border-radius:999px}

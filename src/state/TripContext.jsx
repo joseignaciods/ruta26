@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { hasSupabase, supabase } from '../lib/supabase.js'
 import { localStore } from '../lib/localStore.js'
 import { geocodeQuery } from '../lib/geo.js'
+import { dayAnchor } from '../lib/planner.js'
 import { placeCacheKey, readPlaceCache, writePlaceCache } from '../lib/placeCache.js'
 import { useAuth } from './AuthContext.jsx'
 import { useToast } from './ToastContext.jsx'
@@ -466,6 +467,99 @@ export function TripProvider({ children }) {
         }
         toast('Agregado a la ruta', 'success')
       }),
+
+      // Inserta varias actividades de una sola vez (itinerario generado por IA).
+      // Posiciones base+index en un único insert para no chocar con el unique
+      // (day_id, position) — mismo patrón que addPackingItems.
+      addActivities: (dayId, items) => run(async () => {
+        if (!activeTrip || !items?.length) return
+        const day = activeTrip.days.find(item => item.id === dayId)
+        const base = nextPos(day?.activities)
+        if (!hasSupabase) {
+          const trip = mapTrip(localStore.addActivities(activeTrip.id, dayId, items))
+          updateActive(() => trip)
+        }
+        else {
+          const optimistic = items.map((item, index) => ({
+            id:optimisticId(), dayId, position:base + index,
+            name:item.name, time:item.time || '', duration:item.duration || '', address:item.address || '',
+            category:item.category || 'entertainment', priceLabel:item.priceLabel || '',
+            expenseAmount:0, expenseCurrency:'',
+            latitude:item.latitude ?? null, longitude:item.longitude ?? null,
+            tripadvisorLocationId:item.tripadvisorLocationId || '', imageUrl:item.imageUrl || '', done:false
+          }))
+          updateActive(trip => ({ ...trip, days:trip.days.map(item => item.id === dayId ? { ...item, activities:[...item.activities, ...optimistic].sort(byPosition) } : item) }))
+          const { data, error } = await supabase.from('activities').insert(items.map((item, index) => ({
+            trip_id:activeTrip.id, day_id:dayId, position:base + index,
+            name:item.name, time:item.time || null, duration:item.duration || '', address:item.address || '',
+            category:item.category || 'entertainment', price_label:item.priceLabel || '',
+            latitude:item.latitude ?? null, longitude:item.longitude ?? null,
+            tripadvisor_location_id:item.tripadvisorLocationId || null, image_url:item.imageUrl || null
+          }))).select('*')
+          if (error) { await refresh(); throw error }
+          const replacements = new Map(optimistic.map((entry, index) => [entry.id, data[index]]))
+          updateActive(trip => ({ ...trip, days:trip.days.map(item => item.id === dayId ? { ...item, activities:item.activities.map(activity => replacements.has(activity.id) ? mapActivity(replacements.get(activity.id)) : activity).sort(byPosition) } : item) }))
+        }
+      }),
+
+      // Genera (SIN guardar) el itinerario de un día con IA. La edge function junta
+      // candidatos (Wikipedia gratis + Tripadvisor comida), filtra los ya usados en
+      // el viaje (exclude) y devuelve un plan editable. En modo local da un ejemplo.
+      generateItinerary: async ({ dayId, dayTypes = [], pace = 'balanced', freeText = '', avoidUsed = true, extraExclude = [] }) => {
+        if (!activeTrip) return null
+        const day = activeTrip.days.find(item => item.id === dayId)
+        if (!day) return null
+        if (!hasSupabase) {
+          const pick = (category, count) => localStore.placeSuggestions(day.city, category).slice(0, count)
+          const chosen = [...pick('culture', 2), ...pick('food', 1), ...pick('nature', 1)]
+          const times = ['10:00', '12:30', '14:30', '17:30']
+          const stops = chosen.map((place, index) => ({
+            name:place.name, time:times[index] || '', duration:'1h 30min', category:place.category,
+            address:place.address || day.city, priceLabel:'', latitude:null, longitude:null,
+            tripadvisorLocationId:'', imageUrl:'', provider:'Ruta26 local',
+            whyPicked:'Idea de ejemplo (modo local).', sector:'Centro'
+          }))
+          return { plan:{ dayId:day.id, date:day.date || '', city:day.city, daySummary:`Día de ejemplo en ${day.city}`, stops }, meta:{ demo:true } }
+        }
+        const anchor = await dayAnchor(day, activeTrip.hotels)
+        if (!anchor) { toast('No pudimos ubicar este lugar en el mapa. Edita la ciudad del día.'); return null }
+        const exclude = { ids:[], names:[], coords:[] }
+        if (avoidUsed) {
+          activeTrip.days.forEach(other => {
+            if (other.id === dayId) return
+            other.activities.forEach(activity => {
+              if (activity.tripadvisorLocationId) exclude.ids.push(activity.tripadvisorLocationId)
+              if (activity.name) exclude.names.push(activity.name)
+              if (activity.latitude != null && activity.longitude != null) exclude.coords.push([activity.latitude, activity.longitude])
+            })
+          })
+        }
+        extraExclude.forEach(entry => {
+          if (entry.tripadvisorLocationId) exclude.ids.push(entry.tripadvisorLocationId)
+          if (entry.name) exclude.names.push(entry.name)
+          if (entry.latitude != null && entry.longitude != null) exclude.coords.push([entry.latitude, entry.longitude])
+        })
+        try {
+          const { data, error } = await supabase.functions.invoke('generate-itinerary', {
+            body:{
+              tripId:activeTrip.id,
+              day:{ dayId:day.id, date:day.date || '', city:day.city, anchor:{ latitude:anchor.latitude, longitude:anchor.longitude, label:anchor.label } },
+              preferences:{ dayTypes, pace, freeText, avoidUsed },
+              exclude, language:'es', currency:activeTrip.currency
+            }
+          })
+          if (error) {
+            const payload = await error.context?.json?.().catch(() => null)
+            toast(payload?.error || 'No pudimos generar el itinerario. Intenta de nuevo.')
+            return null
+          }
+          if (data?.error) { toast(data.error); return null }
+          return data
+        } catch {
+          toast('No pudimos generar el itinerario. Revisa tu conexión.')
+          return null
+        }
+      },
 
       updateActivity: (dayId, activityId, fields) => run(async () => {
         if (!activeTrip) return
