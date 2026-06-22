@@ -56,7 +56,10 @@ export async function searchWikiPlaces(options: WikiOptions) {
     piprop: 'thumbnail',
     pithumbsize: '600',
     exintro: '1',
-    explaintext: '1'
+    explaintext: '1',
+    // Sin exlimit, los extracts via generator solo vuelven para 1 página (el
+    // resto queda sin descripción). fetchN ≤ 20, el máximo que permite la API.
+    exlimit: fetchN
   })
 
   if (text) {
