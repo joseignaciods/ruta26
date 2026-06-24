@@ -1,6 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js'
 import { getPlaceDetails, getPlacePhoto, hasTripadvisor, nearbyPlaces, searchAttractionCandidates, searchPlaces } from '../_shared/travel-places.ts'
 import { normName, searchWikiPlaces } from '../_shared/wiki-places.ts'
+import { searchOsmFood } from '../_shared/osm-places.ts'
 import { loadSettings, UserQuotaExceededError } from '../_shared/quota.ts'
 
 const cors = {
@@ -131,6 +132,27 @@ Deno.serve(async request => {
         console.warn('Wikipedia search failed', error)
         return json({ provider:'wikipedia', places:[], externalContent:false })
       }
+    }
+
+    // Comida ("Comer"): Tripadvisor mientras haya créditos; si NO está disponible
+    // (sin key, apagado o cuota agotada), cae a OpenStreetMap (gratis) para no
+    // quedar sin opciones de dónde comer. Solo las listas (search / nearby).
+    if (body.category === 'restaurants' && (!body.action || body.action === 'search' || body.action === 'nearby')) {
+      const lat = Number(body.latitude)
+      const lon = Number(body.longitude)
+      if (hasTripadvisor() && settings.taEnabled) {
+        try {
+          const places = body.action === 'nearby'
+            ? await nearbyPlaces({ latitude:lat, longitude:lon, category:'restaurants', radiusKm:body.radiusKm, language:body.language, currency:body.currency, limit:body.limit, userId:user.id })
+            : await searchPlaces({ query:body.query, city:body.city, category:'restaurants', latitude:body.latitude, longitude:body.longitude, radiusKm:body.radiusKm, language:body.language, currency:body.currency, limit:body.limit, userId:user.id })
+          return json({ provider:'tripadvisor', places, externalContent:true })
+        } catch (error) {
+          // Cualquier fallo de Tripadvisor (cuota agotada incluida) → OpenStreetMap.
+          console.warn('Tripadvisor food failed, falling back to OpenStreetMap', error instanceof Error ? error.message : error)
+        }
+      }
+      const places = await searchOsmFood({ latitude:lat, longitude:lon, radiusKm:body.radiusKm || 6, limit:body.limit })
+      return json({ provider:'openstreetmap', places, externalContent:false, taFallback:true })
     }
 
     // De aquí en adelante se usa Tripadvisor: validar configuración + kill switch.

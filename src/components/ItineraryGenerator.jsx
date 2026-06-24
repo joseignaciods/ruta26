@@ -297,7 +297,8 @@ export default function ItineraryGenerator({ dayIds, onClose }) {
             const draft = drafts[activeTab]
             const notes = []
             if (draft.meta?.demo) notes.push('Modo demo: ideas de ejemplo (sin IA).')
-            if (draft.meta?.taSkipped) notes.push('Sin sugerencias de comida ahora (Tripadvisor no disponible).')
+            if (draft.meta?.foodSource === 'openstreetmap') notes.push('Comida de OpenStreetMap (Tripadvisor sin créditos · sin reseñas).')
+            else if (draft.meta?.taSkipped) notes.push('Sin sugerencias de comida ahora (Tripadvisor no disponible).')
             if (draft.meta?.fewCandidates) notes.push('Pocas opciones por esta zona.')
             if (draft.meta?.excludedCount) notes.push(`Evitamos ${draft.meta.excludedCount} lugar(es) que ya tienes en la ruta.`)
             return (

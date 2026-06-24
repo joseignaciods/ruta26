@@ -2,6 +2,7 @@ import OpenAI from 'npm:openai'
 import { createClient } from 'npm:@supabase/supabase-js'
 import { hasTripadvisor, nearbyPlaces, searchPlaces } from '../_shared/travel-places.ts'
 import { searchWikiPlaces } from '../_shared/wiki-places.ts'
+import { searchOsmFood } from '../_shared/osm-places.ts'
 import { ensureAndConsumeUserQuota, loadSettings, recordOpenAIUsage, UserQuotaExceededError } from '../_shared/quota.ts'
 
 const cors = {
@@ -78,7 +79,7 @@ Deno.serve(async request => {
       throw error
     }
 
-    const meta = { aiUsed: true, taConsumed: 0, excludedCount: 0, taSkipped: false, fewCandidates: false }
+    const meta = { aiUsed: true, taConsumed: 0, excludedCount: 0, taSkipped: false, fewCandidates: false, foodSource: 'tripadvisor' }
 
     // --- GATHER: atracciones gratis (Wikipedia) + comida (Tripadvisor, con cuota) ---
     // deno-lint-ignore no-explicit-any
@@ -93,30 +94,41 @@ Deno.serve(async request => {
     let restaurants: any[] = []
     const cuisines = ((prefs.cuisines || []) as string[]).filter(Boolean).slice(0, 3)
     const wantsFood = prefs.includeFood !== false
-    if (wantsFood && hasTripadvisor() && settings.taEnabled) {
-      try {
-        if (cuisines.length) {
-          // Buscar por cada cocina elegida (sushi, mexicana, etc.) y combinar sin
-          // repetir; acota la cuota repartiendo el límite entre las cocinas.
-          const per = Math.max(1, Math.floor(5 / cuisines.length))
-          const seenFood = new Set<string>()
-          for (const cuisine of cuisines) {
-            const found = await searchPlaces({ query: cuisine, category: 'restaurants', latitude: lat, longitude: lon, radiusKm: 6, limit: per, language, currency, userId: user.id })
-            for (const place of found) {
-              if (place.locationId && !seenFood.has(place.locationId)) { seenFood.add(place.locationId); restaurants.push(place) }
+    if (wantsFood) {
+      let gotTripadvisor = false
+      if (hasTripadvisor() && settings.taEnabled) {
+        try {
+          if (cuisines.length) {
+            // Buscar por cada cocina elegida (sushi, mexicana, etc.) y combinar sin
+            // repetir; acota la cuota repartiendo el límite entre las cocinas.
+            const per = Math.max(1, Math.floor(5 / cuisines.length))
+            const seenFood = new Set<string>()
+            for (const cuisine of cuisines) {
+              const found = await searchPlaces({ query: cuisine, category: 'restaurants', latitude: lat, longitude: lon, radiusKm: 6, limit: per, language, currency, userId: user.id })
+              for (const place of found) {
+                if (place.locationId && !seenFood.has(place.locationId)) { seenFood.add(place.locationId); restaurants.push(place) }
+              }
             }
+          } else {
+            restaurants = await nearbyPlaces({ latitude: lat, longitude: lon, category: 'restaurants', radiusKm: 6, limit: 4, language, currency, userId: user.id })
           }
-        } else {
-          restaurants = await nearbyPlaces({ latitude: lat, longitude: lon, category: 'restaurants', radiusKm: 6, limit: 4, language, currency, userId: user.id })
+          meta.taConsumed = restaurants.length
+          gotTripadvisor = true
+        } catch (error) {
+          console.warn('Tripadvisor food gather failed, trying OpenStreetMap', error instanceof Error ? error.message : error)
         }
-        meta.taConsumed = restaurants.length
-      } catch (error) {
-        // Cuota TA agotada o error: el día se arma solo con atracciones (degradación elegante).
-        meta.taSkipped = true
-        console.warn('Tripadvisor food gather skipped', error instanceof Error ? error.message : error)
       }
-    } else if (wantsFood) {
-      meta.taSkipped = true
+      // Sin Tripadvisor (sin key, apagado o cuota agotada) → comida gratis de OSM,
+      // así el día igual tiene dónde comer (sin reseñas).
+      if (!gotTripadvisor) {
+        meta.taSkipped = true
+        try {
+          restaurants = await searchOsmFood({ latitude: lat, longitude: lon, radiusKm: 6, limit: 5 })
+          if (restaurants.length) meta.foodSource = 'openstreetmap'
+        } catch (error) {
+          console.warn('OpenStreetMap food gather failed', error instanceof Error ? error.message : error)
+        }
+      }
     }
 
     // --- FILTER: anti-repetición en código (no se confía al modelo) ---
@@ -246,9 +258,10 @@ Deno.serve(async request => {
         latitude: candidate.latitude ?? null,
         longitude: candidate.longitude ?? null,
         priceLabel: isFood ? String(candidate.priceLevel || '') : '',
-        // Solo las atracciones de Wikipedia traen foto gratis embebida; la comida (TA)
-        // queda con id para que el front pida la foto bajo demanda (como el picker).
-        tripadvisorLocationId: isFood ? String(candidate.locationId || '') : '',
+        // Solo las atracciones de Wikipedia traen foto gratis embebida; la comida de
+        // Tripadvisor queda con id para pedir la foto bajo demanda. La comida de OSM
+        // (id 'osm-…') no tiene foto en Tripadvisor, así que no se guarda el id.
+        tripadvisorLocationId: isFood && !String(candidate.locationId || '').startsWith('osm-') ? String(candidate.locationId || '') : '',
         imageUrl: isFood ? '' : String(candidate.imageUrl || ''),
         provider: candidate.provider || (isFood ? 'tripadvisor' : 'wikipedia'),
         rating: isFood ? candidate.rating ?? null : null,

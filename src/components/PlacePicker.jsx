@@ -13,7 +13,7 @@ import { PRICE_LEVELS, RATING_STEPS, priceLevelCount } from '../lib/placeFilters
 import SplitEditor from './SplitEditor.jsx'
 
 const isExternalId = locationId => Boolean(locationId) && !String(locationId).startsWith('local-')
-const isTripadvisorId = locationId => isExternalId(locationId) && !String(locationId).startsWith('wiki-')
+const isTripadvisorId = locationId => isExternalId(locationId) && !String(locationId).startsWith('wiki-') && !String(locationId).startsWith('osm-')
 const hasCoords = place => place.latitude != null && place.longitude != null
 const placeKey = place => place.locationId || place.tripadvisorUrl || place.name
 const fmtDistance = km => km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`
@@ -517,6 +517,9 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
           )}
           {!busy && provider === 'wikipedia+tripadvisor' && (
             <p className="provider-note">Lugares con foto de Wikipedia y puntuaciones, reseñas y ranking de Tripadvisor consultados en vivo.</p>
+          )}
+          {!busy && provider === 'openstreetmap' && (
+            <p className="provider-note">Tripadvisor no disponible ahora · mostrando lugares de OpenStreetMap (datos abiertos, sin reseñas).</p>
           )}
         </div>
       ) : (
