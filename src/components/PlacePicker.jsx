@@ -143,7 +143,8 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
         category:intent.category,
         city:day.city,
         fallbackQuery:intent.seedQuery,
-        limit:8
+        limit:8,
+        enrich:true
       })
     } else if (area && text) {
       // Texto + zona del mapa: búsqueda normal anclada al centro visible, sin ciudad
@@ -152,10 +153,11 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
         latitude:area.latitude,
         longitude:area.longitude,
         radiusKm:area.radiusKm,
-        limit:8
+        limit:8,
+        enrich:true
       })
     } else {
-      const options = { seed, limit:8 }
+      const options = { seed, limit:8, enrich:true }
       if (effectiveAnchor) {
         options.latitude = effectiveAnchor.latitude
         options.longitude = effectiveAnchor.longitude
@@ -425,6 +427,9 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
           )}
           {!busy && provider === 'wikipedia' && (
             <p className="provider-note">Lugares e imágenes de Wikipedia / Wikimedia Commons · datos abiertos, sin costo.</p>
+          )}
+          {!busy && provider === 'wikipedia+tripadvisor' && (
+            <p className="provider-note">Lugares con foto de Wikipedia y puntuaciones, reseñas y ranking de Tripadvisor consultados en vivo.</p>
           )}
         </div>
       ) : (

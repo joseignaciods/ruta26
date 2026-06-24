@@ -56,7 +56,9 @@ const normalizePlace = (row: Record<string, unknown>) => {
     longitude:Number.isFinite(longitude) ? longitude : null,
     rating:row.rating == null ? null : Number(row.rating),
     reviewCount:row.num_reviews == null ? null : Number(row.num_reviews),
-    ranking:String(row.ranking || ''),
+    // El ranking real viene en ranking_data.ranking_string ("#5 de 200 cosas que
+    // hacer en …"); row.ranking casi siempre llega vacío.
+    ranking:String((row.ranking_data as Record<string, unknown> | undefined)?.ranking_string || row.ranking || ''),
     priceLevel:String(row.price_level || ''),
     website:String(row.website || ''),
     phone:String(row.phone || ''),
@@ -149,6 +151,26 @@ export async function searchPlaces(options: SearchOptions) {
   })
   const matches = ((data.data || []) as Record<string, unknown>[]).slice(0, limit)
   return enrichMatches(matches, options)
+}
+
+// Candidatos crudos de atracciones cerca de un punto, SIN /details → 0 cuota.
+// Sirve para emparejar lugares de Wikipedia con su ficha de Tripadvisor antes
+// de gastar una unidad en el detalle solo de los que hacen match.
+export async function searchAttractionCandidates(
+  options: { latitude: number, longitude: number, radiusKm?: number, language?: string }
+) {
+  const data = await request('/location/nearby_search', {
+    latLong:`${options.latitude},${options.longitude}`,
+    category:'attractions',
+    radius:options.radiusKm ? Math.ceil(options.radiusKm) : undefined,
+    radiusUnit:options.radiusKm ? 'km' : undefined,
+    language:options.language || 'es'
+  })
+  return ((data.data || []) as Record<string, unknown>[]).map(row => ({
+    locationId:String(row.location_id || ''),
+    name:String(row.name || ''),
+    address:normalizeAddress(row.address_obj as Record<string, unknown> | undefined)
+  }))
 }
 
 type NearbyOptions = {

@@ -20,6 +20,12 @@ const trim = (text: string, max = 180) => {
   return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean
 }
 
+// Nombre normalizado (sin tildes/puntuación, minúsculas) para emparejar un
+// lugar de Wikipedia con su ficha de Tripadvisor.
+export const normName = (value: unknown) =>
+  String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()
+
 const normalize = (page: Record<string, any>, lang: string) => {
   const coord = (page.coordinates && page.coordinates[0]) || null
   return {

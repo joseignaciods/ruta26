@@ -639,11 +639,15 @@ export function TripProvider({ children }) {
             }
           }
           const providerCategory = category === 'food' ? 'restaurants' : category === 'hotel' || category === 'hotels' ? 'hotels' : 'attractions'
+          // Enriquecer atracciones de Wikipedia con datos de Tripadvisor (solo en el
+          // browse deliberado del picker; no al tipear sugerencias).
+          const enrich = !!options.enrich && providerCategory === 'attractions'
+          const enrichLimit = options.enrichLimit || 6
           const hasGeo = options.latitude != null && options.longitude != null
           const geoKey = hasGeo ? `${options.latitude.toFixed(2)},${options.longitude.toFixed(2)},${Math.round(options.radiusKm || 0)}` : ''
           const limit = options.limit || 5
           const seed = !!options.seed
-          const cacheKey = placeCacheKey(['search', query, city, providerCategory, geoKey, limit, seed ? 'seed' : ''])
+          const cacheKey = placeCacheKey(['search', query, city, providerCategory, geoKey, limit, seed ? 'seed' : '', enrich ? 'enrich' : ''])
           const cached = readPlaceCache(cacheKey)
           if (cached) return cached
           const { data, error } = await supabase.functions.invoke('travel-search', {
@@ -652,6 +656,8 @@ export function TripProvider({ children }) {
               city,
               category:providerCategory,
               seed,
+              enrich,
+              enrichLimit,
               currency:activeTrip?.currency,
               language:'es',
               limit,
@@ -675,7 +681,7 @@ export function TripProvider({ children }) {
 
       // Browse por área sin texto (mapa del picker). fallbackQuery cubre el caso
       // de una edge function desplegada sin la acción 'nearby' todavía.
-      searchNearbyPlaces: async ({ latitude, longitude, radiusKm, category, city, fallbackQuery, limit = 8 }) => {
+      searchNearbyPlaces: async ({ latitude, longitude, radiusKm, category, city, fallbackQuery, limit = 8, enrich = false, enrichLimit = 6 }) => {
         try {
           if (!hasSupabase) {
             return {
@@ -685,11 +691,12 @@ export function TripProvider({ children }) {
             }
           }
           const providerCategory = category === 'food' ? 'restaurants' : 'attractions'
-          const cacheKey = placeCacheKey(['nearby', providerCategory, `${latitude.toFixed(2)},${longitude.toFixed(2)}`, Math.round(radiusKm || 0), limit])
+          const wantsEnrich = enrich && providerCategory === 'attractions'
+          const cacheKey = placeCacheKey(['nearby', providerCategory, `${latitude.toFixed(2)},${longitude.toFixed(2)}`, Math.round(radiusKm || 0), limit, wantsEnrich ? 'enrich' : ''])
           const cached = readPlaceCache(cacheKey)
           if (cached) return cached
           let { data, error } = await supabase.functions.invoke('travel-search', {
-            body:{ action:'nearby', latitude, longitude, radiusKm, category:providerCategory, currency:activeTrip?.currency, language:'es', limit }
+            body:{ action:'nearby', latitude, longitude, radiusKm, category:providerCategory, enrich:wantsEnrich, enrichLimit, currency:activeTrip?.currency, language:'es', limit }
           })
           if (error) {
             const payload = await error.context?.json?.().catch(() => null)
@@ -702,7 +709,7 @@ export function TripProvider({ children }) {
           const needsFallback = fallbackQuery && data?.error === 'query es requerido'
           if (needsFallback) {
             ;({ data, error } = await supabase.functions.invoke('travel-search', {
-              body:{ query:fallbackQuery, category:providerCategory, latitude, longitude, radiusKm, currency:activeTrip?.currency, language:'es', limit }
+              body:{ query:fallbackQuery, category:providerCategory, latitude, longitude, radiusKm, enrich:wantsEnrich, enrichLimit, currency:activeTrip?.currency, language:'es', limit }
             }))
           }
           if (error) {
