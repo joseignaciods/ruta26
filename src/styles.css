@@ -203,4 +203,9 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .poi-pin-wrap.active{z-index:1000}
 .poi-pin-wrap.active .poi-pin{transform:scale(1.25);box-shadow:0 6px 18px #1e104070;border-color:#ffe08a}
 .leaflet-tooltip.poi-tip{background:#1e1040;color:white;border:0;border-radius:8px;font-weight:800;font-size:11px;font-family:'Nunito',sans-serif;padding:4px 9px;box-shadow:0 4px 14px #1e10404d}
+
+/* "Mantenerme conectado" en el login */
+.remember-row{flex-direction:row;align-items:center;gap:10px;margin:-2px 0 14px;font-size:13px;font-weight:700;color:#473b5f;cursor:pointer;text-transform:none;letter-spacing:0}
+.remember-row input{width:18px;height:18px;flex:0 0 auto;margin:0;padding:0;accent-color:#8b5cf6}
+.remember-row span{flex:1}
 @media (max-height:720px){.picker-map-card .pmc-photo{height:74px}.picker-map-card{flex-basis:210px}}

@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../state/AuthContext.jsx'
+import { getRememberMe } from '../lib/supabase.js'
 
 export default function AuthPage({ initialMode = 'login' }) {
   const [mode, setMode] = useState(initialMode)
   const [form, setForm] = useState({ name:'', email:'', password:'' })
+  const [remember, setRemember] = useState(getRememberMe())
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
@@ -15,8 +17,8 @@ export default function AuthPage({ initialMode = 'login' }) {
     setBusy(true)
     setError('')
     try {
-      if (mode === 'login') await login(form)
-      else await register(form)
+      if (mode === 'login') await login(form, remember)
+      else await register(form, remember)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -49,6 +51,10 @@ export default function AuthPage({ initialMode = 'login' }) {
           )}
           <label>Correo<input required type="email" value={form.email} onChange={e => setForm({ ...form, email:e.target.value })} /></label>
           <label>Contraseña<input required minLength="6" type="password" value={form.password} onChange={e => setForm({ ...form, password:e.target.value })} /></label>
+          <label className="remember-row">
+            <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
+            <span>Mantenerme conectado</span>
+          </label>
           {error && <div className="error-box">{error}</div>}
           {notice && <div className="notice">{notice}</div>}
           <button className="primary-btn" disabled={busy}>{busy ? 'Procesando...' : mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}</button>

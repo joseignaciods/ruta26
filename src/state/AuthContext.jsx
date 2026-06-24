@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { hasSupabase, supabase } from '../lib/supabase.js'
+import { hasSupabase, setRememberMe, supabase } from '../lib/supabase.js'
 import { localStore } from '../lib/localStore.js'
 
 const AuthContext = createContext(null)
@@ -28,7 +28,9 @@ export function AuthProvider({ children }) {
     user:session?.user || null,
     loading,
     backend:hasSupabase ? 'supabase' : 'local',
-    async register(values) {
+    async register(values, remember = true) {
+      // Fijar la preferencia ANTES de crear la sesión: el storage se elige al escribirla.
+      setRememberMe(remember)
       if (!hasSupabase) {
         const next = localStore.register(values)
         setSession(next)
@@ -41,7 +43,10 @@ export function AuthProvider({ children }) {
       })
       if (error) throw error
     },
-    async login(values) {
+    async login(values, remember = true) {
+      // Fijar la preferencia ANTES del signIn: define si la sesión va a localStorage
+      // (persistente) o a sessionStorage (solo hasta cerrar la app).
+      setRememberMe(remember)
       if (!hasSupabase) {
         const next = localStore.login(values)
         setSession(next)
