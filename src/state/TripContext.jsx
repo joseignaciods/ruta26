@@ -668,7 +668,7 @@ export function TripProvider({ children }) {
           })
           if (error) {
             const payload = await error.context?.json?.().catch(() => null)
-            if (payload?.limitReached) toast(payload.error)
+            if (payload?.limitReached) { toast(payload.error); return { limitReached:true, error:payload.error, places:[] } }
             return null
           }
           if (data?.error) return null
@@ -700,7 +700,7 @@ export function TripProvider({ children }) {
           })
           if (error) {
             const payload = await error.context?.json?.().catch(() => null)
-            if (payload?.limitReached) toast(payload.error)
+            if (payload?.limitReached) { toast(payload.error); return { limitReached:true, error:payload.error, places:[] } }
             return null
           }
           // Solo reintentamos con búsqueda por texto si la edge function aún no
@@ -714,7 +714,7 @@ export function TripProvider({ children }) {
           }
           if (error) {
             const payload = await error.context?.json?.().catch(() => null)
-            if (payload?.limitReached) toast(payload.error)
+            if (payload?.limitReached) { toast(payload.error); return { limitReached:true, error:payload.error, places:[] } }
             return null
           }
           if (data?.error) return null

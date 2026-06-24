@@ -47,6 +47,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const [minRating, setMinRating] = useState(0)
   const [showUnrated, setShowUnrated] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [limitMsg, setLimitMsg] = useState('')
   const photosRef = useRef({})
   const panelRef = useRef(null)
   const mapElRef = useRef(null)
@@ -169,6 +170,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     setBusy(true)
     setAreaSearch(false)
     setFailed(false)
+    setLimitMsg('')
     // El filtro de tipo (cocina/museos/etc.) se suma a la búsqueda como texto.
     const typeQuery = filterTypes.join(' ')
     const userText = text.trim()
@@ -213,7 +215,12 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     }
     if (seq !== requestSeq.current) return
     setBusy(false)
-    if (result) {
+    if (result?.limitReached) {
+      setPlaces([])
+      setProvider('')
+      setResultsLabel('')
+      setLimitMsg(result.error || 'Alcanzaste tu cuota mensual de búsquedas de lugares (Tripadvisor). Se renueva el día 1 del próximo mes.')
+    } else if (result) {
       setPlaces(result.places || [])
       setProvider(result.provider || '')
       setResultsLabel(label)
@@ -476,7 +483,10 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
               </article>
             )
           })}
-          {!busy && !places.length && (
+          {!busy && limitMsg && (
+            <div className="picker-empty">{limitMsg}</div>
+          )}
+          {!busy && !limitMsg && !places.length && (
             <div className="picker-empty">
               {failed
                 ? 'No pudimos buscar ahora. Revisa tu conexión o agrega el panorama sin lugar.'

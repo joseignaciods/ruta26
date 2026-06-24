@@ -1,6 +1,37 @@
 import { ensureAndConsumeTripadvisorQuota, UserQuotaExceededError } from './quota.ts'
+import { createClient } from 'npm:@supabase/supabase-js'
 
 const TRIPADVISOR_BASE = 'https://api.content.tripadvisor.com/api/v1'
+
+// Caché compartida de fichas de Tripadvisor (service role, 30 días). Evita gastar
+// cuota dos veces por el mismo lugar — clave porque enriquecer atracciones gasta
+// rápido. Es mejor esfuerzo: si la caché falla, se consulta a Tripadvisor normal.
+const cacheClient = () => createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+)
+const DETAILS_CACHE_DAYS = 30
+
+const readDetailsCache = async (locationId: string) => {
+  try {
+    const { data } = await cacheClient()
+      .from('ta_details_cache')
+      .select('payload, updated_at')
+      .eq('location_id', locationId)
+      .maybeSingle()
+    if (!data?.payload) return null
+    const ageMs = Date.now() - new Date(data.updated_at as string).getTime()
+    return ageMs > DETAILS_CACHE_DAYS * 86_400_000 ? null : data.payload
+  } catch {
+    return null
+  }
+}
+
+const writeDetailsCache = async (locationId: string, payload: unknown) => {
+  try {
+    await cacheClient().from('ta_details_cache').upsert({ location_id: locationId, payload, updated_at: new Date().toISOString() })
+  } catch { /* mejor esfuerzo: la caché no debe romper la búsqueda */ }
+}
 
 export type PlaceCategory = 'hotels' | 'attractions' | 'restaurants' | 'geos'
 
@@ -77,12 +108,17 @@ export async function getPlaceDetails(
   options: { language?: string, currency?: string, userId?: string } = {}
 ) {
   if (!options.userId) throw new Error('userId es requerido para consultar Tripadvisor')
+  // Caché primero: si la ficha está fresca, NO gasta cuota.
+  const cached = await readDetailsCache(locationId)
+  if (cached) return cached as ReturnType<typeof normalizePlace>
   await ensureAndConsumeTripadvisorQuota(options.userId, 1)
   const data = await request(`/location/${encodeURIComponent(locationId)}/details`, {
     language:options.language || 'es',
     currency:options.currency || 'USD'
   })
-  return normalizePlace(data)
+  const place = normalizePlace(data)
+  await writeDetailsCache(locationId, place)
+  return place
 }
 
 // Una sola foto del lugar (espejo de getPlaceDetails). Cada llamada consume 1
