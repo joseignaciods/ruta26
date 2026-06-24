@@ -383,7 +383,8 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const located = visiblePlaces.filter(hasCoords)
 
   return (
-    <div className="place-picker" ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="picker-title" tabIndex={-1}>
+    <div className={`place-picker ${view === 'map' ? 'is-map' : ''}`} ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="picker-title" aria-label={intent.title} tabIndex={-1}>
+      {view === 'list' && (<>
       <header className="picker-header">
         <button type="button" className="back-btn" onClick={onClose} aria-label="Volver a la ruta">←</button>
         <div>
@@ -445,6 +446,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
           )}
         </div>
       </div>
+      </>)}
 
       {view === 'list' ? (
         <div className={`picker-results ${busy ? 'is-busy' : ''}`} aria-live="polite" aria-busy={busy}>
@@ -547,6 +549,37 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       ) : (
         <div className="picker-map-wrap">
           <div ref={mapElRef} className="picker-map" />
+          <div className="map-overlay-top">
+            <div className="map-top-bar">
+              <button type="button" className="map-fab" onClick={onClose} aria-label="Volver a la ruta">←</button>
+              <div className="picker-search map-search">
+                <input value={query} onChange={event => setQuery(event.target.value)} placeholder={intent.placeholder} aria-label="Buscar lugares" />
+                {query && <button type="button" className="icon-btn" onClick={() => setQuery('')} aria-label="Limpiar búsqueda">✕</button>}
+              </div>
+              <div className="picker-view-toggle">
+                <button type="button" className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>Lista</button>
+                <button type="button" className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}>Mapa</button>
+              </div>
+            </div>
+            <div className="category-picker">
+              {intents.map(item => (
+                <button type="button" key={item.key} className={intentKey === item.key ? 'active' : ''} onClick={() => { setIntentKey(item.key); setQuery(''); setFilterTypes([]) }}>
+                  <CategoryIcon name={item.icon} /><span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="map-tool-row">
+              <button type="button" className={`picker-filter-btn ${activeFilterCount ? 'on' : ''}`} onClick={() => setFiltersOpen(true)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4" /></svg>
+                Filtros{activeFilterCount ? ` · ${activeFilterCount}` : ''}
+              </button>
+              <label className={`picker-geo ${geoAnchor ? 'on' : ''}`}>
+                <input type="checkbox" checked={!!geoAnchor} onChange={toggleGeo} disabled={geoBusy} />
+                <span>{geoBusy ? 'Ubicando…' : 'Cerca mío'}</span>
+              </label>
+              {(geoError || effectiveAnchor) && <small className="map-anchor">{geoError || `Cerca de ${effectiveAnchor.label}`}</small>}
+            </div>
+          </div>
           {areaSearch && !busy && (
             <button type="button" className="picker-area-btn" onClick={searchThisArea}>Buscar en esta zona</button>
           )}
@@ -558,6 +591,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
                 : 'Mueve el mapa y toca “Buscar en esta zona”.'}
             </div>
           )}
+          <div className="map-bottom-sheet">
           {located.length > 0 && located.length < visiblePlaces.length && (
             <p className="picker-map-coordless">
               {visiblePlaces.length - located.length} sin ubicación · míralos en la lista
@@ -621,14 +655,20 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
           {!busy && located.length > 0 && provider === 'wikipedia' && (
             <p className="picker-map-provider">Lugares e imágenes de Wikipedia · datos abiertos</p>
           )}
+            <button type="button" className="ghost-btn map-add-noplace" onClick={() => openConfirm(null)}>
+              {query.trim().length >= 3 ? `Usar “${query.trim()}” sin lugar` : 'Agregar sin lugar'}
+            </button>
+          </div>
         </div>
       )}
 
+      {view === 'list' && (
       <footer className="picker-footer">
         <button type="button" className="ghost-btn" onClick={() => openConfirm(null)}>
           {query.trim().length >= 3 ? `Usar “${query.trim()}” sin lugar` : 'Agregar sin lugar'}
         </button>
       </footer>
+      )}
 
       {filtersOpen && (
         <div className="picker-confirm" onClick={() => setFiltersOpen(false)}>
