@@ -5,7 +5,7 @@ import { useTrips } from '../state/TripContext.jsx'
 import { useAuth } from '../state/AuthContext.jsx'
 import CategoryIcon, { categoryFor, pinHtml } from './CategoryIcon.jsx'
 import { inferCategory, intentFor, intents } from '../lib/intents.js'
-import { dayAnchor, suggestMealTime, suggestNextTime } from '../lib/planner.js'
+import { dayAnchor, dayLoad, formatMinutes, hasMeal, suggestMealTime, suggestNextTime } from '../lib/planner.js'
 import { distanceKm } from '../lib/geo.js'
 import { resolveSplit } from '../lib/computeBalances.js'
 import MultiSelect from './MultiSelect.jsx'
@@ -382,6 +382,29 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
 
   const located = visiblePlaces.filter(hasCoords)
 
+  // "Tu día" en vivo: cuántos panoramas lleva, cuánto tiempo y qué le falta. Se
+  // recalcula con cada panorama que agregas (day llega actualizado desde RouteTab).
+  const dayActivities = day.activities || []
+  const dayLoadInfo = dayLoad(dayActivities)
+  const mealMissing = dayActivities.length > 0 && !hasMeal(dayActivities) && intentKey !== 'eat'
+  const dayStrip = (
+    <div className={`picker-day-strip level-${dayLoadInfo.level}`}>
+      <div className="pds-main">
+        {dayActivities.length === 0
+          ? <b>Tu día está vacío — empieza por lo imperdible ✦</b>
+          : (<>
+              <b>{dayActivities.length} en el día</b>
+              <span>≈ {formatMinutes(dayLoadInfo.totalMinutes)}</span>
+            </>)}
+        {dayLoadInfo.level === 'full' && <em>día completo</em>}
+        {dayLoadInfo.level === 'over' && <em>día muy cargado</em>}
+      </div>
+      {mealMissing && (
+        <button type="button" className="pds-nudge" onClick={() => { setIntentKey('eat'); setQuery(''); setFilterTypes([]) }}>🍽 Falta dónde comer</button>
+      )}
+    </div>
+  )
+
   return (
     <div className={`place-picker ${view === 'map' ? 'is-map' : ''}`} ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="picker-title" aria-label={intent.title} tabIndex={-1}>
       {view === 'list' && (<>
@@ -450,6 +473,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
 
       {view === 'list' ? (
         <div className={`picker-results ${busy ? 'is-busy' : ''}`} aria-live="polite" aria-busy={busy}>
+          {dayStrip}
           {busy && !places.length && <div className="ideas-loading">Buscando buenas opciones…</div>}
           {resultsLabel && (visiblePlaces.length > 0 || !busy) && <p className="picker-results-label">{resultsLabel}</p>}
           {visiblePlaces.map((place, index) => {
@@ -592,6 +616,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
             </div>
           )}
           <div className="map-bottom-sheet">
+          {dayStrip}
           {located.length > 0 && located.length < visiblePlaces.length && (
             <p className="picker-map-coordless">
               {visiblePlaces.length - located.length} sin ubicación · míralos en la lista

@@ -232,4 +232,26 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .map-bottom-sheet .picker-map-cards{padding:2px 12px 4px}
 .map-bottom-sheet .picker-map-coordless,.map-bottom-sheet .picker-map-provider{padding-inline:14px}
 .map-add-noplace{align-self:center;font-size:11px;max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* --- "Tu día" en vivo dentro del picker --- */
+.picker-day-strip{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-radius:13px;background:#f4efff;border:1px solid #e6ddf6}
+.map-bottom-sheet .picker-day-strip{margin:0 12px}
+.pds-main{display:flex;align-items:baseline;gap:8px;flex:1;min-width:0;flex-wrap:wrap}
+.pds-main b{font-size:12px;color:#1e1040;font-weight:800}
+.pds-main span{font-size:11px;color:#6b5b8a;font-weight:700}
+.pds-main em{font-style:normal;font-size:9px;font-weight:800;padding:2px 8px;border-radius:999px;background:white;color:#6b5b8a}
+.picker-day-strip.level-full{background:#fff7ed;border-color:#fed7aa}
+.picker-day-strip.level-full .pds-main em{color:#9a5511;background:#ffedd5}
+.picker-day-strip.level-over{background:#fdeaf2;border-color:#f4c2d8}
+.picker-day-strip.level-over .pds-main em{color:#a72f73;background:#fcd9e6}
+.pds-nudge{flex:0 0 auto;font-size:11px;font-weight:800;color:#7042ce;background:white;border:1px solid #d9ccf6;padding:6px 11px;border-radius:999px}
+/* --- Carga del día y traslados en Ruta --- */
+.day-load{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-2px 0 10px;padding:7px 12px;border-radius:12px;background:#f6f2fd;font-size:11px}
+.day-load b{color:#6d28d9;font-size:12px;font-weight:800}
+.day-load>span{color:#8b789e;font-weight:700}
+.day-load em{font-style:normal;margin-left:auto;font-weight:800;font-size:10px;padding:2px 8px;border-radius:999px;background:white;color:#6b5b8a}
+.day-load.level-full{background:#fff7ed}.day-load.level-full em{color:#9a5511;background:#ffedd5}
+.day-load.level-over{background:#fdeaf2}.day-load.level-over em{color:#a72f73;background:#fcd9e6}
+.activity-hop{display:flex;align-items:center;padding-left:18px;margin:-3px 0 -1px}
+.activity-hop span{font-size:9px;font-weight:700;color:#9b91ad;background:#f5f2fa;padding:2px 9px;border-radius:999px;border:1px solid #efe9f7}
 @media (max-height:720px){.picker-map-card .pmc-photo{height:74px}.picker-map-card{flex-basis:210px}}

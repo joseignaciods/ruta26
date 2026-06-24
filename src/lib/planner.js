@@ -1,4 +1,4 @@
-import { geocodeCity } from './geo.js'
+import { distanceKm, geocodeCity } from './geo.js'
 
 const located = item => item?.latitude != null && item?.longitude != null
 
@@ -86,3 +86,61 @@ export function addDays(iso, amount) {
   date.setUTCDate(date.getUTCDate() + amount)
   return date.toISOString().slice(0, 10)
 }
+
+// --- Inteligencia del día: cuánto dura, cuánto traslado, qué tan cargado --------
+// Todo a partir de datos que ya tenemos (categoría + coordenadas). Sin APIs.
+
+// Duración media por tipo cuando el panorama no trae una explícita.
+const CATEGORY_MINUTES = { culture: 90, food: 75, nature: 120, entertainment: 105, transport: 30 }
+
+// "2h", "1h30", "1.5h", "90 min", "45m", "2" → minutos. null si no se entiende.
+export function durationToMinutes(text) {
+  const value = String(text || '').toLowerCase().replace(',', '.').trim()
+  if (!value) return null
+  const hours = value.match(/(\d+(?:\.\d+)?)\s*h(?:\s*(\d{1,2}))?/)
+  if (hours) return Math.round(parseFloat(hours[1]) * 60) + (hours[2] ? Number(hours[2]) : 0)
+  const minutes = value.match(/(\d+)\s*m(?:in)?/)
+  if (minutes) return Number(minutes[1])
+  const bare = value.match(/^(\d+(?:\.\d+)?)$/)
+  if (bare) { const n = parseFloat(bare[1]); return n <= 8 ? Math.round(n * 60) : Math.round(n) }
+  return null
+}
+
+export const activityMinutes = activity =>
+  durationToMinutes(activity?.duration) || CATEGORY_MINUTES[activity?.category] || 90
+
+// Traslado estimado entre dos paradas ubicadas: a pie si están cerca, si no en
+// transporte urbano. Devuelve null si alguna no tiene coordenadas.
+export function travelEstimate(from, to) {
+  if (!located(from) || !located(to)) return null
+  const km = distanceKm([from.latitude, from.longitude], [to.latitude, to.longitude])
+  const walk = km <= 1.4
+  const minutes = Math.max(walk ? 3 : 6, Math.round((km / (walk ? 4.6 : 24)) * 60))
+  return { km, minutes, mode: walk ? 'walk' : 'ride' }
+}
+
+// Carga del día: tiempo en panoramas + traslados entre paradas consecutivas,
+// con un nivel (light/good/full/over) para avisar cuando el día está apretado.
+export function dayLoad(activities = []) {
+  const list = activities || []
+  const activeMinutes = list.reduce((sum, activity) => sum + activityMinutes(activity), 0)
+  const stops = list.filter(located)
+  let travelMinutes = 0
+  for (let i = 1; i < stops.length; i++) travelMinutes += travelEstimate(stops[i - 1], stops[i])?.minutes || 0
+  const totalMinutes = activeMinutes + travelMinutes
+  const level = totalMinutes >= 600 ? 'over' : totalMinutes >= 480 ? 'full' : totalMinutes >= 180 ? 'good' : 'light'
+  return { count: list.length, activeMinutes, travelMinutes, totalMinutes, level }
+}
+
+export function formatMinutes(minutes) {
+  if (!minutes || minutes < 1) return ''
+  const hours = Math.floor(minutes / 60)
+  const rest = Math.round(minutes % 60)
+  return hours ? (rest ? `${hours}h ${rest}m` : `${hours}h`) : `${rest}m`
+}
+
+export const formatKm = km =>
+  km == null ? '' : km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(km < 10 ? 1 : 0)} km`
+
+// ¿El día ya tiene una comida? (para el aviso "falta dónde comer" del picker).
+export const hasMeal = (activities = []) => (activities || []).some(activity => activity.category === 'food')

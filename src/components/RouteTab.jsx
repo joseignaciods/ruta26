@@ -1,9 +1,9 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTrips } from '../state/TripContext.jsx'
 import CategoryIcon, { categories, categoryFor } from './CategoryIcon.jsx'
 import { inferCategory, intentForCategory } from '../lib/intents.js'
-import { addDays, dayHotel, formatDate, suggestNextTime } from '../lib/planner.js'
+import { addDays, dayHotel, dayLoad, formatDate, formatKm, formatMinutes, suggestNextTime, travelEstimate } from '../lib/planner.js'
 import { searchSpots, rememberPlace } from '../lib/geo.js'
 
 // Lazy para que Leaflet no entre al bundle inicial (igual que MapTab).
@@ -258,11 +258,25 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                 <button onClick={() => moveDay(dayIndex, -1)} disabled={dayIndex === 0}>↑ Día</button>
                 <button onClick={() => moveDay(dayIndex, 1)} disabled={dayIndex === activeTrip.days.length - 1}>↓ Día</button>
               </div>
+              {day.activities.length > 0 && (() => {
+                const load = dayLoad(day.activities)
+                return (
+                  <div className={`day-load level-${load.level}`}>
+                    <b>≈ {formatMinutes(load.totalMinutes)}</b>
+                    <span>{load.count} parada{load.count !== 1 ? 's' : ''}{load.travelMinutes > 0 ? ` · ${formatMinutes(load.travelMinutes)} en traslados` : ''}</span>
+                    {load.level === 'full' && <em>día completo</em>}
+                    {load.level === 'over' && <em>día muy cargado</em>}
+                  </div>
+                )
+              })()}
               <div className="activity-timeline">
                 {day.activities.map((activity, activityIndex) => {
                   const category = categoryFor(activity.category)
+                  const nextActivity = day.activities[activityIndex + 1]
+                  const hop = nextActivity ? travelEstimate(activity, nextActivity) : null
                   return (
-                    <div className={`activity-line category-${category.id}`} key={activity.id}>
+                    <Fragment key={activity.id}>
+                    <div className={`activity-line category-${category.id}`}>
                       <div className="activity-category-icon">
                         {activity.imageUrl
                           ? <img src={activity.imageUrl} alt="" loading="lazy" onError={event => { event.currentTarget.style.display = 'none' }} />
@@ -293,6 +307,10 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                       )}
                       <button className="icon-btn" onClick={() => deleteActivity(day.id, activity.id)} aria-label="Eliminar panorama">✕</button>
                     </div>
+                    {hop && (
+                      <div className="activity-hop"><span>{hop.mode === 'walk' ? '🚶' : '🚗'} {formatKm(hop.km)} · {formatMinutes(hop.minutes)}</span></div>
+                    )}
+                    </Fragment>
                   )
                 })}
               </div>
