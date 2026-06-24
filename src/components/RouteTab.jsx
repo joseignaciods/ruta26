@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTrips } from '../state/TripContext.jsx'
 import CategoryIcon, { categories, categoryFor } from './CategoryIcon.jsx'
 import { inferCategory, intentForCategory } from '../lib/intents.js'
@@ -365,7 +366,10 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
       {picker && (() => {
         const pickerDay = activeTrip.days.find(day => day.id === picker.dayId)
         if (!pickerDay) return null
-        return (
+        // Portal a document.body: el picker es position:fixed y debe cubrir toda
+        // la pantalla. Dentro de .workspace (fixed + overflow:hidden) iOS Safari
+        // lo recortaba y dejaba ver la barra inferior abajo (la "banda vacía").
+        return createPortal(
           <Suspense fallback={null}>
             <PlacePicker
               day={pickerDay}
@@ -373,7 +377,8 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
               initialView={picker.view}
               onClose={() => setPicker(null)}
             />
-          </Suspense>
+          </Suspense>,
+          document.body
         )
       })()}
 
