@@ -53,6 +53,8 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const mapElRef = useRef(null)
   const mapRef = useRef(null)
   const markersRef = useRef(null)
+  const markerByKey = useRef({})
+  const fitSignatureRef = useRef('')
   const lastProgrammaticMove = useRef(0)
   const searchTimer = useRef(null)
   const requestSeq = useRef(0)
@@ -81,7 +83,6 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     })
   }, [places, minRating, priceLevels, showUnrated, filtersActive])
 
-  const hiddenByFilters = filtersActive ? places.length - visiblePlaces.length : 0
   // Lugares sin rating ni precio (Wikipedia sin enriquecer) que un filtro de
   // precio/puntuación oculta — se ofrecen con "mostrar sin reseñas".
   const unratedCount = places.filter(place => place.rating == null && !priceLevelCount(place.priceLevel)).length
@@ -271,6 +272,8 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       attribution:'&copy; OpenStreetMap contributors'
     }).addTo(map)
     markersRef.current = L.layerGroup().addTo(map)
+    markerByKey.current = {}
+    fitSignatureRef.current = ''
     lastProgrammaticMove.current = Date.now()
     map.setView(effectiveAnchor ? [effectiveAnchor.latitude, effectiveAnchor.longitude] : [20, 0], effectiveAnchor ? 13 : 2)
     map.on('moveend', () => {
@@ -291,24 +294,43 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     const layer = markersRef.current
     if (!map || !layer) return
     layer.clearLayers()
+    markerByKey.current = {}
     const located = visiblePlaces.filter(hasCoords)
     located.forEach((place, index) => {
+      const key = placeKey(place)
       const category = categoryFor(inferCategory(place, intent.category))
       const icon = L.divIcon({ className:'poi-pin-wrap', html:pinHtml(category.id, index + 1), iconSize:[32, 32], iconAnchor:[16, 16] })
-      L.marker([place.latitude, place.longitude], { icon })
-        .bindTooltip(place.name, { direction:'top' })
+      const marker = L.marker([place.latitude, place.longitude], { icon })
         .on('click', () => {
-          setActiveKey(placeKey(place))
+          setActiveKey(key)
+          lastProgrammaticMove.current = Date.now()
+          map.panTo([place.latitude, place.longitude])
           document.getElementById(`picker-map-card-${index}`)?.scrollIntoView({ behavior:'smooth', inline:'center', block:'nearest' })
         })
         .addTo(layer)
+      markerByKey.current[key] = marker
     })
-    if (located.length) {
+    // Solo reencuadrar cuando cambia el CONJUNTO de lugares ubicados, no en cada
+    // render: así un cambio de filtro o la llegada de fotos no saca la cámara del
+    // pin que el usuario está mirando.
+    const signature = located.map(placeKey).join('|')
+    if (located.length && signature !== fitSignatureRef.current) {
       lastProgrammaticMove.current = Date.now()
       map.fitBounds(located.map(place => [place.latitude, place.longitude]), { padding:[34, 34], maxZoom:15 })
     }
+    fitSignatureRef.current = signature
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visiblePlaces, view])
+
+  // Resalta el pin del lugar activo sin reconstruir los marcadores (reconstruir
+  // dispararía fitBounds). Se reaplica también tras cada rebuild —por eso depende
+  // de visiblePlaces/view— y siempre con guarda de null en getElement().
+  useEffect(() => {
+    Object.entries(markerByKey.current).forEach(([key, marker]) => {
+      const element = marker.getElement?.()
+      if (element) element.classList.toggle('active', key === activeKey)
+    })
+  }, [activeKey, visiblePlaces, view])
 
   const searchThisArea = () => {
     const map = mapRef.current
@@ -536,37 +558,68 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
                 : 'Mueve el mapa y toca “Buscar en esta zona”.'}
             </div>
           )}
+          {located.length > 0 && located.length < visiblePlaces.length && (
+            <p className="picker-map-coordless">
+              {visiblePlaces.length - located.length} sin ubicación · míralos en la lista
+            </p>
+          )}
           {located.length > 0 && (
             <div className="picker-map-cards">
               {located.map((place, index) => {
                 const added = addedKeys.includes(placeKey(place))
+                const active = activeKey === placeKey(place)
+                const photo = photos[place.locationId]
+                const ratingText = place.rating != null && place.rating !== 0 ? `★ ${Number(place.rating).toFixed(1)}` : ''
+                const distance = effectiveAnchor
+                  ? distanceKm([effectiveAnchor.latitude, effectiveAnchor.longitude], [place.latitude, place.longitude])
+                  : null
+                const meta = [ratingText, place.reviewCount ? `${place.reviewCount} opiniones` : '', place.priceLevel, distance != null ? `a ${fmtDistance(distance)}` : '']
+                  .filter(Boolean).join(' · ')
+                const detailUrl = place.tripadvisorUrl || place.url || ''
                 return (
-                  <div
+                  <article
                     id={`picker-map-card-${index}`}
                     key={placeKey(place)}
-                    className={`picker-map-card ${activeKey === placeKey(place) ? 'active' : ''}`}
+                    className={`picker-map-card ${active ? 'active' : ''}`}
                     onClick={() => {
                       setActiveKey(placeKey(place))
                       lastProgrammaticMove.current = Date.now()
                       mapRef.current?.panTo([place.latitude, place.longitude])
                     }}
                   >
-                    <b>{index + 1}</b>
-                    <div>
-                      <h5>{place.name}</h5>
-                      <small>{[place.rating ? `★ ${Number(place.rating).toFixed(1)}/5` : '', place.priceLevel].filter(Boolean).join(' · ') || place.address}</small>
+                    <div className="pmc-photo">
+                      {photo
+                        ? <img src={photo} alt="" loading="lazy" onError={() => setPhotos(prev => ({ ...prev, [place.locationId]:'' }))} />
+                        : <CategoryIcon name={inferCategory(place, intent.category)} />}
+                      <span className="pmc-index">{index + 1}</span>
                     </div>
-                    <button
-                      type="button"
-                      className={`idea-add ${added ? 'added' : ''}`}
-                      disabled={added}
-                      onClick={event => { event.stopPropagation(); quickAdd(place) }}
-                      aria-label={`Agregar ${place.name}`}
-                    >{added ? '✓' : '+'}</button>
-                  </div>
+                    <div className="pmc-body">
+                      <small className="pmc-cat">{categoryFor(inferCategory(place, intent.category)).label}</small>
+                      <h5>{place.name}</h5>
+                      {meta && <p className="pmc-meta">{meta}</p>}
+                      {place.address && <p className="pmc-address">{place.address}</p>}
+                      <div className="pmc-actions">
+                        {detailUrl && <a href={detailUrl} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()}>Ver detalles ↗</a>}
+                        <button type="button" className="pmc-tune" onClick={event => { event.stopPropagation(); openConfirm(place) }}>Ajustar</button>
+                        <button
+                          type="button"
+                          className={`idea-add ${added ? 'added' : ''}`}
+                          disabled={added}
+                          onClick={event => { event.stopPropagation(); quickAdd(place) }}
+                          aria-label={`Agregar ${place.name}`}
+                        >{added ? '✓' : '+'}</button>
+                      </div>
+                    </div>
+                  </article>
                 )
               })}
             </div>
+          )}
+          {!busy && located.length > 0 && provider === 'openstreetmap' && (
+            <p className="picker-map-provider">Lugares de OpenStreetMap · datos abiertos, sin reseñas</p>
+          )}
+          {!busy && located.length > 0 && provider === 'wikipedia' && (
+            <p className="picker-map-provider">Lugares e imágenes de Wikipedia · datos abiertos</p>
           )}
         </div>
       )}
