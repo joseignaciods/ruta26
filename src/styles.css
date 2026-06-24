@@ -118,6 +118,20 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .ms-check{flex:0 0 auto;width:17px;height:17px;border-radius:5px;border:1.5px solid #cbb9ee;display:grid;place-items:center;font-size:11px;color:white;background:white}
 .multiselect-option.checked .ms-check{background:#8b5cf6;border-color:#8b5cf6}
 .multiselect-empty{padding:10px;text-align:center;color:#9186a5;font-size:11px}
+
+/* --- Filtros del picker de panoramas --- */
+.picker-filters{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}
+.picker-filter-btn{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid #d9ccf6;background:white;color:#6b5b8a;font-weight:800;font-size:11px}
+.picker-filter-btn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.picker-filter-btn.on{background:var(--grad);color:white;border-color:transparent}
+.picker-filter-chip{padding:6px 10px;border-radius:999px;background:#f1ebfd;color:#6d28d9;font-weight:700;font-size:11px;border:1px solid #e0d3f8;white-space:nowrap}
+.picker-filter-sheet .gen-label{margin:12px 0 0}
+.picker-filter-sheet .gen-segment{margin-top:6px}
+.picker-show-unrated{margin:10px auto 2px;display:block;padding:8px 14px;border-radius:999px;background:#f5f0ff;color:#8b5cf6;font-weight:800;font-size:11px}
+.picker-relax-btn{display:block;margin:12px auto 0;padding:9px 16px;border-radius:999px;background:var(--grad);color:white;font-weight:800;font-size:12px}
+.picker-empty-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+.picker-empty-actions .picker-relax-btn{margin:0}
+.picker-relax-btn.ghost{background:#f5f0ff;color:#8b5cf6}
 .gen-textarea{width:100%;border:1px solid #e0d3f8;border-radius:13px;padding:11px;font:inherit;font-size:14px;resize:vertical;background:white}
 .gen-switch{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:9px;font-size:12px;color:#3a1d6e;font-weight:600}
 .gen-switch input{flex:0 0 auto}

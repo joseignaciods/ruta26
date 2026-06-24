@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTrips } from '../state/TripContext.jsx'
 import CategoryIcon, { categoryFor } from './CategoryIcon.jsx'
 import MultiSelect from './MultiSelect.jsx'
+import { CUISINES, CULTURE_TYPES } from '../lib/placeFilters.js'
 
 // Tipos de día (mapean a las claves que entiende la edge function generate-itinerary).
 const DAY_TYPES = [
@@ -9,22 +10,6 @@ const DAY_TYPES = [
   { id:'nature', label:'Aire libre', icon:'nature' },
   { id:'entertainment', label:'Experiencias', icon:'entertainment' },
   { id:'food', label:'Gastronomía', icon:'food' }
-]
-// Subtipos opcionales que aparecen al elegir Gastronomía / Cultura. Las cocinas
-// además afinan la búsqueda en Tripadvisor; los tipos de cultura guían a la IA.
-const CUISINES = [
-  'Italiana', 'Peruana', 'Japonesa', 'Sushi', 'Mariscos', 'Parrilla', 'Comida local', 'Mexicana', 'China',
-  'Hamburguesas', 'Pizza', 'Pastas', 'Mediterránea', 'Española', 'Tapas', 'Francesa', 'Tailandesa', 'India',
-  'Café', 'Heladería', 'Comida rápida', 'Comida callejera', 'Vegetariana', 'Vegana', 'Saludable', 'Bar',
-  'Cervecería', 'Vinoteca', 'Contemporánea', 'Fusión', 'Internacional', 'Argentina', 'Brasileña', 'Americana',
-  'Coreana', 'Vietnamita', 'Árabe', 'Libanesa', 'Griega', 'Turca', 'Venezolana', 'Colombiana', 'Caribeña',
-  'Panadería', 'Sándwiches', 'Sopas', 'Asiática', 'Steakhouse', 'Portuguesa', 'Alemana'
-]
-const CULTURE_TYPES = [
-  'Museos', 'Museos de arte', 'Sitios históricos', 'Puntos de interés y monumentos', 'Iglesias y catedrales',
-  'Sitios religiosos', 'Monumentos y estatuas', 'Edificios y arquitectura', 'Castillos', 'Ruinas y sitios arqueológicos',
-  'Galerías de arte', 'Barrios emblemáticos', 'Mercados', 'Parques', 'Jardines', 'Miradores y torres',
-  'Teatros y ópera', 'Puentes', 'Naturaleza y vida silvestre', 'Playas', 'Paseos escénicos', 'Plazas y fuentes'
 ]
 const PACES = [
   { id:'relaxed', label:'Relajado' },

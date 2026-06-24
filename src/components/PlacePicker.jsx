@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useTrips } from '../state/TripContext.jsx'
@@ -8,6 +8,8 @@ import { inferCategory, intentFor, intents } from '../lib/intents.js'
 import { dayAnchor, suggestMealTime, suggestNextTime } from '../lib/planner.js'
 import { distanceKm } from '../lib/geo.js'
 import { resolveSplit } from '../lib/computeBalances.js'
+import MultiSelect from './MultiSelect.jsx'
+import { PRICE_LEVELS, RATING_STEPS, priceLevelCount } from '../lib/placeFilters.js'
 import SplitEditor from './SplitEditor.jsx'
 
 const isExternalId = locationId => Boolean(locationId) && !String(locationId).startsWith('local-')
@@ -38,6 +40,13 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const [geoBusy, setGeoBusy] = useState(false)
   const [geoError, setGeoError] = useState('')
   const [photos, setPhotos] = useState({})
+  // Filtros: tipo/categoría (afina la búsqueda), precio y puntuación (del lado
+  // cliente sobre los resultados ya traídos).
+  const [filterTypes, setFilterTypes] = useState([])
+  const [priceLevels, setPriceLevels] = useState([])
+  const [minRating, setMinRating] = useState(0)
+  const [showUnrated, setShowUnrated] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const photosRef = useRef({})
   const panelRef = useRef(null)
   const mapElRef = useRef(null)
@@ -49,6 +58,32 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
 
   const intent = intentFor(intentKey)
   const effectiveAnchor = geoAnchor || anchor
+
+  const togglePrice = id => setPriceLevels(list => (list.includes(id) ? list.filter(x => x !== id) : [...list, id]))
+  const clearFilters = () => { setFilterTypes([]); setPriceLevels([]); setMinRating(0); setShowUnrated(false) }
+  const activeFilterCount = filterTypes.length + (priceLevels.length ? 1 : 0) + (minRating > 0 ? 1 : 0)
+  const filtersActive = minRating > 0 || priceLevels.length > 0
+
+  // Precio/puntuación filtran sobre lo ya traído (Tripadvisor no filtra por eso).
+  // Los lugares sin reseñas (Wikipedia sin enriquecer) se ocultan bajo filtro,
+  // salvo que el usuario los pida con "mostrar sin reseñas".
+  const visiblePlaces = useMemo(() => {
+    if (!filtersActive) return places
+    return places.filter(place => {
+      const rating = place.rating == null ? null : Number(place.rating)
+      const price = priceLevelCount(place.priceLevel)
+      const hasMeta = rating != null || price > 0
+      if (!hasMeta) return showUnrated
+      if (minRating > 0 && (rating == null || rating < minRating)) return false
+      if (priceLevels.length && price > 0 && !priceLevels.includes(Math.min(price, 4))) return false
+      return true
+    })
+  }, [places, minRating, priceLevels, showUnrated, filtersActive])
+
+  const hiddenByFilters = filtersActive ? places.length - visiblePlaces.length : 0
+  // Lugares sin rating ni precio (Wikipedia sin enriquecer) que un filtro de
+  // precio/puntuación oculta — se ofrecen con "mostrar sin reseñas".
+  const unratedCount = places.filter(place => place.rating == null && !priceLevelCount(place.priceLevel)).length
 
   useEffect(() => {
     if (geoAnchor) return
@@ -134,8 +169,14 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     setBusy(true)
     setAreaSearch(false)
     setFailed(false)
+    // El filtro de tipo (cocina/museos/etc.) se suma a la búsqueda como texto.
+    const typeQuery = filterTypes.join(' ')
+    const userText = text.trim()
+    const combined = [userText, typeQuery].filter(Boolean).join(' ')
     let result
-    if (area && !text) {
+    let label
+    if (area && !combined) {
+      // Zona del mapa sin texto ni tipo → browse cercano.
       result = await searchNearbyPlaces({
         latitude:area.latitude,
         longitude:area.longitude,
@@ -146,35 +187,36 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
         limit:8,
         enrich:true
       })
-    } else if (area && text) {
-      // Texto + zona del mapa: búsqueda normal anclada al centro visible, sin ciudad
-      // para que el área mande sobre el nombre de la ciudad.
-      result = await searchPlaces(text, '', intent.category, {
+      label = 'Resultados en esta zona'
+    } else if (area) {
+      // Zona del mapa + texto/tipo: anclada al centro visible, sin ciudad.
+      result = await searchPlaces(combined, '', intent.category, {
         latitude:area.latitude,
         longitude:area.longitude,
         radiusKm:area.radiusKm,
         limit:8,
         enrich:true
       })
+      label = 'Resultados en esta zona'
     } else {
-      const options = { seed, limit:8, enrich:true }
+      const isSeed = seed && !combined
+      const options = { seed:isSeed, limit:8, enrich:true }
       if (effectiveAnchor) {
         options.latitude = effectiveAnchor.latitude
         options.longitude = effectiveAnchor.longitude
-        options.radiusKm = seed ? 15 : 30
+        options.radiusKm = isSeed ? 15 : 30
       }
       // Si el anchor es GPS no anclamos la búsqueda a la ciudad del día.
       const cityForSearch = geoAnchor ? '' : day.city
-      result = await searchPlaces(seed ? intent.seedQuery : text, cityForSearch, intent.category, options)
+      result = await searchPlaces(isSeed ? intent.seedQuery : combined, cityForSearch, intent.category, options)
+      label = isSeed || !userText ? `${intent.suggestTitle} en ${day.city}` : `Resultados para “${userText}”`
     }
     if (seq !== requestSeq.current) return
     setBusy(false)
     if (result) {
       setPlaces(result.places || [])
       setProvider(result.provider || '')
-      setResultsLabel(area
-        ? 'Resultados en esta zona'
-        : seed ? `${intent.suggestTitle} en ${day.city}` : `Resultados para “${text}”`)
+      setResultsLabel(label)
     } else {
       setPlaces([])
       setProvider('')
@@ -191,16 +233,18 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     if (clean.length >= 3) {
       searchTimer.current = setTimeout(() => runSearch({ text:clean }), 450)
     } else if (!clean.length) {
-      runSearch({ seed:true })
+      // Sin texto: seed (o búsqueda por tipo si hay filtro). Pequeño debounce para
+      // agrupar toques rápidos de los chips de tipo.
+      searchTimer.current = setTimeout(() => runSearch({ seed:true }), 250)
     }
     return () => clearTimeout(searchTimer.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveAnchor, intentKey, query])
+  }, [effectiveAnchor, intentKey, query, filterTypes])
 
   // Foto por resultado (modo generoso: una por tarjeta visible). Se piden una
   // sola vez por locationId en la sesión (photosRef) y se cachean en TripContext.
   useEffect(() => {
-    places.forEach(place => {
+    visiblePlaces.forEach(place => {
       const locationId = place.locationId
       if (!isExternalId(locationId) || photosRef.current[locationId]) return
       photosRef.current[locationId] = true
@@ -210,7 +254,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       if (isTripadvisorId(locationId)) fetchPlacePhoto(locationId).then(url => setPhotos(prev => ({ ...prev, [locationId]:url })))
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [places])
+  }, [visiblePlaces])
 
   useEffect(() => {
     if (view !== 'map' || !mapElRef.current) return
@@ -240,7 +284,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     const layer = markersRef.current
     if (!map || !layer) return
     layer.clearLayers()
-    const located = places.filter(hasCoords)
+    const located = visiblePlaces.filter(hasCoords)
     located.forEach((place, index) => {
       const category = categoryFor(inferCategory(place, intent.category))
       const icon = L.divIcon({ className:'poi-pin-wrap', html:pinHtml(category.id, index + 1), iconSize:[32, 32], iconAnchor:[16, 16] })
@@ -257,7 +301,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       map.fitBounds(located.map(place => [place.latitude, place.longitude]), { padding:[34, 34], maxZoom:15 })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [places, view])
+  }, [visiblePlaces, view])
 
   const searchThisArea = () => {
     const map = mapRef.current
@@ -307,7 +351,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     if (result !== null) onClose()
   }
 
-  const located = places.filter(hasCoords)
+  const located = visiblePlaces.filter(hasCoords)
 
   return (
     <div className="place-picker" ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="picker-title" tabIndex={-1}>
@@ -326,7 +370,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
               type="button"
               key={item.key}
               className={intentKey === item.key ? 'active' : ''}
-              onClick={() => { setIntentKey(item.key); setQuery('') }}
+              onClick={() => { setIntentKey(item.key); setQuery(''); setFilterTypes([]) }}
             >
               <CategoryIcon name={item.icon} /><span>{item.label}</span>
             </button>
@@ -354,13 +398,30 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
         {(geoError || effectiveAnchor) && (
           <small className="picker-anchor">{geoError || `Cerca de ${effectiveAnchor.label}`}</small>
         )}
+        <div className="picker-filters">
+          <button type="button" className={`picker-filter-btn ${activeFilterCount ? 'on' : ''}`} onClick={() => setFiltersOpen(true)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4" /></svg>
+            Filtros{activeFilterCount ? ` · ${activeFilterCount}` : ''}
+          </button>
+          {filterTypes.map(type => (
+            <button type="button" key={type} className="picker-filter-chip" onClick={() => setFilterTypes(list => list.filter(item => item !== type))}>{type} ✕</button>
+          ))}
+          {priceLevels.length > 0 && (
+            <button type="button" className="picker-filter-chip" onClick={() => setPriceLevels([])}>
+              {[...priceLevels].sort((a, b) => a - b).map(level => '$'.repeat(level)).join(' / ')} ✕
+            </button>
+          )}
+          {minRating > 0 && (
+            <button type="button" className="picker-filter-chip" onClick={() => setMinRating(0)}>★ {minRating}+ ✕</button>
+          )}
+        </div>
       </div>
 
       {view === 'list' ? (
         <div className={`picker-results ${busy ? 'is-busy' : ''}`} aria-live="polite" aria-busy={busy}>
           {busy && !places.length && <div className="ideas-loading">Buscando buenas opciones…</div>}
-          {resultsLabel && (places.length > 0 || !busy) && <p className="picker-results-label">{resultsLabel}</p>}
-          {places.map((place, index) => {
+          {resultsLabel && (visiblePlaces.length > 0 || !busy) && <p className="picker-results-label">{resultsLabel}</p>}
+          {visiblePlaces.map((place, index) => {
             const added = addedKeys.includes(placeKey(place))
             const distance = effectiveAnchor && hasCoords(place)
               ? distanceKm([effectiveAnchor.latitude, effectiveAnchor.longitude], [place.latitude, place.longitude])
@@ -422,6 +483,22 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
                 : 'Sin resultados por aquí. Prueba con otra búsqueda o revisa el mapa.'}
             </div>
           )}
+          {!busy && places.length > 0 && !visiblePlaces.length && (
+            <div className="picker-empty">
+              Ningún lugar cumple los filtros.
+              <div className="picker-empty-actions">
+                {unratedCount > 0 && !showUnrated && (
+                  <button type="button" className="picker-relax-btn ghost" onClick={() => setShowUnrated(true)}>Mostrar sin reseñas</button>
+                )}
+                <button type="button" className="picker-relax-btn" onClick={clearFilters}>Limpiar filtros</button>
+              </div>
+            </div>
+          )}
+          {!busy && visiblePlaces.length > 0 && filtersActive && !showUnrated && unratedCount > 0 && (
+            <button type="button" className="picker-show-unrated" onClick={() => setShowUnrated(true)}>
+              Mostrar {unratedCount} lugar{unratedCount > 1 ? 'es' : ''} sin reseñas
+            </button>
+          )}
           {!busy && provider === 'tripadvisor' && (
             <p className="provider-note">Resultados consultados en vivo en Tripadvisor. Al agregar uno solo guardamos nombre, dirección y ubicación.</p>
           )}
@@ -441,7 +518,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
           {busy && <div className="picker-map-note">Buscando buenas opciones…</div>}
           {!busy && !located.length && (
             <div className="picker-map-note">
-              {places.length
+              {visiblePlaces.length
                 ? 'Estos resultados no traen coordenadas; revísalos en la lista.'
                 : 'Mueve el mapa y toca “Buscar en esta zona”.'}
             </div>
@@ -486,6 +563,35 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
           {query.trim().length >= 3 ? `Usar “${query.trim()}” sin lugar` : 'Agregar sin lugar'}
         </button>
       </footer>
+
+      {filtersOpen && (
+        <div className="picker-confirm" onClick={() => setFiltersOpen(false)}>
+          <form className="picker-filter-sheet" onSubmit={event => { event.preventDefault(); setFiltersOpen(false) }} onClick={event => event.stopPropagation()}>
+            <div className="composer-heading">
+              <div><span>FILTROS</span><h4>{intent.suggestTitle}</h4></div>
+              <button type="button" className="icon-btn" onClick={() => setFiltersOpen(false)} aria-label="Cerrar">✕</button>
+            </div>
+            <label className="gen-label">{intent.filterLabel}</label>
+            <MultiSelect options={intent.filterTypes} value={filterTypes} onChange={setFilterTypes} placeholder="Cualquiera" />
+            <label className="gen-label">Precio</label>
+            <div className="gen-segment">
+              {PRICE_LEVELS.map(level => (
+                <button type="button" key={level.id} className={priceLevels.includes(level.id) ? 'active' : ''} onClick={() => togglePrice(level.id)}>{level.label}</button>
+              ))}
+            </div>
+            <label className="gen-label">Puntuación</label>
+            <div className="gen-segment">
+              {RATING_STEPS.map(step => (
+                <button type="button" key={step.id} className={minRating === step.id ? 'active' : ''} onClick={() => setMinRating(step.id)}>{step.label}</button>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="ghost-btn" onClick={clearFilters}>Limpiar</button>
+              <button type="submit" className="primary-btn compact">Ver resultados</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {confirm && (
         <div className="picker-confirm" onClick={() => setConfirm(null)}>

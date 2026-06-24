@@ -1,4 +1,5 @@
 import { categories } from '../components/CategoryIcon.jsx'
+import { ATTRACTION_TYPES, CUISINES, CULTURE_TYPES, NATURE_TYPES } from './placeFilters.js'
 
 // Intenciones del selector de lugares: cada una define qué se sugiere antes de
 // tipear (seedQuery contra Tripadvisor) y los valores por defecto del panorama.
@@ -14,6 +15,8 @@ export const intents = [
     suggestTitle:'Imperdibles',
     seedQuery:'mejores atracciones y panoramas imperdibles',
     placeholder:'Busca lugares, tours, barrios…',
+    filterLabel:'Tipo de lugar',
+    filterTypes:ATTRACTION_TYPES,
     defaultTime:null
   },
   {
@@ -25,6 +28,8 @@ export const intents = [
     suggestTitle:'Para comer',
     seedQuery:'mejores restaurantes, cafés y bares',
     placeholder:'Busca restaurantes, cafés, bares…',
+    filterLabel:'Cocina',
+    filterTypes:CUISINES,
     defaultTime:null
   },
   {
@@ -36,6 +41,8 @@ export const intents = [
     suggestTitle:'Cultura e historia',
     seedQuery:'museos, historia y lugares culturales',
     placeholder:'Busca museos, templos, monumentos…',
+    filterLabel:'Tipo de cultura',
+    filterTypes:CULTURE_TYPES,
     defaultTime:null
   },
   {
@@ -47,6 +54,8 @@ export const intents = [
     suggestTitle:'Naturaleza y aire libre',
     seedQuery:'parques, jardines y naturaleza',
     placeholder:'Busca parques, jardines, miradores…',
+    filterLabel:'Tipo de naturaleza',
+    filterTypes:NATURE_TYPES,
     defaultTime:null
   }
 ]
