@@ -50,6 +50,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const [limitMsg, setLimitMsg] = useState('')
   const photosRef = useRef({})
   const panelRef = useRef(null)
+  const filterOverlayRef = useRef(null)
   const mapElRef = useRef(null)
   const mapRef = useRef(null)
   const markersRef = useRef(null)
@@ -146,6 +147,26 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       window.removeEventListener('orientationchange', onOrientation)
     }
   }, [])
+
+  // El sheet de filtros también debe quedar sobre el teclado: cuando está abierto,
+  // fijamos su alto al de la ventana visible (visualViewport) para que el desplegable
+  // "Tipo de lugar" no rompa la vista al enfocar su buscador.
+  useEffect(() => {
+    if (!filtersOpen) return
+    const viewport = window.visualViewport
+    const overlay = filterOverlayRef.current
+    if (!viewport || !overlay) return
+    const sync = () => { overlay.style.height = `${Math.round(viewport.height)}px`; overlay.style.bottom = 'auto' }
+    sync()
+    viewport.addEventListener('resize', sync)
+    viewport.addEventListener('scroll', sync)
+    return () => {
+      viewport.removeEventListener('resize', sync)
+      viewport.removeEventListener('scroll', sync)
+      overlay.style.height = ''
+      overlay.style.bottom = ''
+    }
+  }, [filtersOpen])
 
   // Modal real: foco al panel, Escape cierra, y el botón atrás cierra el picker
   // (no el viaje). Empuja un estado de historial solo si aún no hay uno nuestro,
@@ -696,7 +717,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       )}
 
       {filtersOpen && (
-        <div className="picker-confirm" onClick={() => setFiltersOpen(false)}>
+        <div className="picker-confirm" ref={filterOverlayRef} onClick={() => setFiltersOpen(false)}>
           <form className="picker-filter-sheet" onSubmit={event => { event.preventDefault(); setFiltersOpen(false) }} onClick={event => event.stopPropagation()}>
             <div className="composer-heading">
               <div><span>FILTROS</span><h4>{intent.suggestTitle}</h4></div>

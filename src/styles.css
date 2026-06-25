@@ -111,7 +111,8 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .multiselect-panel{margin-top:5px;border:1px solid #e0d3f8;border-radius:13px;background:white;box-shadow:0 10px 30px #1e10401a;padding:6px;display:flex;flex-direction:column;gap:4px}
 .multiselect-search{padding:9px 11px;font-size:16px;border-radius:10px}
 .multiselect-clear{text-align:left;padding:6px 8px;font-size:11px;font-weight:800;color:#8b5cf6}
-.multiselect-list{max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.multiselect-list{max-height:150px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.picker-confirm form{overscroll-behavior:contain}
 .multiselect-option{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;font-size:13px;color:#3a1d6e;text-align:left}
 .multiselect-option:hover{background:#f6f2fd}
 .multiselect-option.checked{background:#f1ebfd;color:#6d28d9;font-weight:700}

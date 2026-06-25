@@ -33,7 +33,6 @@ export default function MultiSelect({ options, value, onChange, placeholder = 'C
           {options.length > 8 && (
             <input
               className="multiselect-search"
-              autoFocus
               placeholder="Buscar…"
               value={query}
               onChange={event => setQuery(event.target.value)}

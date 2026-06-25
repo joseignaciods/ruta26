@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js'
-import { getPlaceDetails, getPlacePhoto, hasTripadvisor, nearbyPlaces, searchAttractionCandidates, searchPlaces } from '../_shared/travel-places.ts'
-import { normName, searchWikiPlaces } from '../_shared/wiki-places.ts'
+import { getPlaceDetails, getPlacePhoto, hasTripadvisor, nearbyPlaces, searchPlaces } from '../_shared/travel-places.ts'
+import { searchWikiPlaces } from '../_shared/wiki-places.ts'
 import { searchOsmFood } from '../_shared/osm-places.ts'
 import { loadSettings, UserQuotaExceededError } from '../_shared/quota.ts'
 
@@ -16,69 +16,6 @@ const json = (body: unknown, status = 200) =>
     headers:{ ...cors, 'Content-Type':'application/json' }
   })
 
-const haversineKm = (aLat: number, aLon: number, bLat: number, bLon: number) => {
-  const toRad = (v: number) => v * Math.PI / 180
-  const dLat = toRad(bLat - aLat)
-  const dLon = toRad(bLon - aLon)
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLon / 2) ** 2
-  return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
-}
-
-// ¿Coincide el nombre de Wikipedia con el del candidato de Tripadvisor? Conservador:
-// uno contiene al otro, o todas las palabras significativas del más corto están en
-// el más largo. Mejor sin match que un match equivocado (rating de otro lugar).
-const namesMatch = (a: string, b: string) => {
-  const na = normName(a)
-  const nb = normName(b)
-  if (!na || !nb) return false
-  if (na === nb || na.includes(nb) || nb.includes(na)) return true
-  const tokens = (s: string) => s.split(' ').filter(word => word.length > 2)
-  const ta = tokens(na)
-  const tb = tokens(nb)
-  if (!ta.length || !tb.length) return false
-  const [shorter, longer] = ta.length <= tb.length ? [ta, new Set(tb)] : [tb, new Set(ta)]
-  return shorter.every(word => longer.has(word))
-}
-
-// Enriquece las primeras `limit` atracciones de Wikipedia con su ficha de
-// Tripadvisor (rating, reseñas, ranking, precio) conservando la foto gratis de
-// Wikipedia. Una búsqueda de candidatos (0 cuota) + un /details (1 cuota) por
-// match verificado por cercanía. Corta al agotarse la cuota → el resto queda
-// como Wikipedia gratis.
-// deno-lint-ignore no-explicit-any
-async function enrichAttractions(places: any[], opts: { latitude: number, longitude: number, language?: string, currency?: string, userId: string, limit: number }) {
-  const { latitude, longitude, language, currency, userId, limit } = opts
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !places.length) return places
-  let candidates: { locationId: string, name: string, address: string }[] = []
-  try {
-    candidates = await searchAttractionCandidates({ latitude, longitude, radiusKm: 12, language })
-  } catch (error) {
-    console.warn('Tripadvisor candidate search failed', error instanceof Error ? error.message : error)
-    return places
-  }
-  if (!candidates.length) return places
-  for (const place of places.slice(0, limit)) {
-    const candidate = candidates.find(item => namesMatch(place.name, item.name))
-    if (!candidate) continue
-    try {
-      const details = await getPlaceDetails(candidate.locationId, { language, currency, userId })
-      if (details.latitude != null && place.latitude != null &&
-        haversineKm(Number(place.latitude), Number(place.longitude), details.latitude, details.longitude) > 0.6) continue
-      place.rating = details.rating
-      place.reviewCount = details.reviewCount
-      place.ranking = details.ranking
-      place.priceLevel = details.priceLevel
-      place.tripadvisorUrl = details.tripadvisorUrl
-      place.tripadvisorLocationId = details.locationId
-      if (!place.address && details.address) place.address = details.address
-      place.provider = 'wikipedia+tripadvisor'
-    } catch (error) {
-      if (error instanceof UserQuotaExceededError || (error instanceof Error && error.message.includes('monthly limit reached'))) break
-      console.warn('Tripadvisor enrich detail failed', error instanceof Error ? error.message : error)
-    }
-  }
-  return places
-}
 
 Deno.serve(async request => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers:cors })
@@ -99,38 +36,56 @@ Deno.serve(async request => {
     // DESCUBRIR gratis (cobertura amplia + foto). Si el cliente pide `enrich` y hay
     // cuota, las primeras se enriquecen con la ficha de Tripadvisor (rating, etc.).
     // Comida y hoteles siguen 100% en Tripadvisor.
+    // Atracciones (Imperdibles/Cultura/Aire libre): TRIPADVISOR PRIMARIO para que la
+    // categoría SÍ filtre (museos, parques, lo mejor) con foto, rating y reseñas. Si
+    // TA no está disponible (sin key, apagado o cuota agotada), cae a Wikipedia
+    // (gratis) — que cerca de una ciudad solo trae edificios notables.
     const wantsWiki = body.category !== 'restaurants' && body.category !== 'hotels'
     if (wantsWiki && (!body.action || body.action === 'search' || body.action === 'nearby')) {
-      try {
-        // El seed (sugerencias al abrir, sin texto) y "buscar en esta zona" usan
-        // geosearch alrededor del ancla: la búsqueda por texto de Wikipedia no
-        // entiende frases tipo "mejores atracciones imperdibles" y devolvía vacío.
-        // Solo usamos texto cuando el usuario realmente escribió una consulta.
-        const places = await searchWikiPlaces({
-          query:body.action === 'nearby' || body.seed ? '' : body.query,
-          city:body.city,
-          latitude:body.latitude,
-          longitude:body.longitude,
-          radiusKm:body.radiusKm,
-          language:body.language,
-          limit:body.limit
-        })
-        if (body.enrich && hasTripadvisor() && settings.taEnabled && places.length) {
-          await enrichAttractions(places, {
-            latitude:Number(body.latitude),
-            longitude:Number(body.longitude),
-            language:body.language,
-            currency:body.currency,
-            userId:user.id,
-            limit:Math.min(Math.max(Number(body.enrichLimit) || 6, 1), 8)
-          })
+      const lat = Number(body.latitude)
+      const lon = Number(body.longitude)
+      const userText = String(body.query || '').trim()
+      // Palabras de búsqueda en Tripadvisor para las sugerencias (seed) por categoría.
+      const seedQuery: Record<string, string> = {
+        culture: 'museos monumentos lugares históricos',
+        nature: 'parques jardines naturaleza miradores'
+      }
+      if (hasTripadvisor() && settings.taEnabled) {
+        try {
+          let places
+          if (body.seed && body.category === 'entertainment') {
+            // Imperdibles sin texto → lo mejor cerca del ancla.
+            places = await nearbyPlaces({ latitude: lat, longitude: lon, category: 'attractions', radiusKm: body.radiusKm || 12, language: body.language, currency: body.currency, limit: body.limit, userId: user.id })
+          } else if (body.action === 'nearby' && !userText) {
+            // "Buscar en esta zona" sin texto → atracciones del área visible.
+            places = await nearbyPlaces({ latitude: lat, longitude: lon, category: 'attractions', radiusKm: body.radiusKm, language: body.language, currency: body.currency, limit: body.limit, userId: user.id })
+          } else {
+            // Cultura / Aire libre (seed) → palabras por categoría; o el texto del usuario.
+            const query = (body.seed && seedQuery[body.category]) || userText || body.query
+            places = await searchPlaces({ query, city: body.city, category: 'attractions', latitude: lat, longitude: lon, radiusKm: body.radiusKm, language: body.language, currency: body.currency, limit: body.limit, userId: user.id })
+          }
+          return json({ provider: 'tripadvisor', places, externalContent: true })
+        } catch (error) {
+          const quota = error instanceof UserQuotaExceededError || (error instanceof Error && error.message.includes('monthly limit reached'))
+          if (!quota) console.warn('Tripadvisor attractions failed, falling back to Wikipedia', error instanceof Error ? error.message : error)
+          // Cae a Wikipedia (cuota agotada, sin key o error).
         }
-        // deno-lint-ignore no-explicit-any
-        const enriched = Boolean(body.enrich) && places.some((place: any) => place.tripadvisorLocationId)
-        return json({ provider:enriched ? 'wikipedia+tripadvisor' : 'wikipedia', places, externalContent:enriched })
+      }
+      // Respaldo gratuito: Wikipedia (geosearch + filtro de eventos).
+      try {
+        const places = await searchWikiPlaces({
+          query: body.action === 'nearby' || body.seed ? '' : body.query,
+          city: body.city,
+          latitude: body.latitude,
+          longitude: body.longitude,
+          radiusKm: body.radiusKm,
+          language: body.language,
+          limit: body.limit
+        })
+        return json({ provider: 'wikipedia', places, externalContent: false })
       } catch (error) {
         console.warn('Wikipedia search failed', error)
-        return json({ provider:'wikipedia', places:[], externalContent:false })
+        return json({ provider: 'wikipedia', places: [], externalContent: false })
       }
     }
 
