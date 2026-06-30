@@ -6,7 +6,7 @@ import { useAuth } from '../state/AuthContext.jsx'
 import CategoryIcon, { categoryFor, pinHtml } from './CategoryIcon.jsx'
 import { inferCategory, intentFor, intents } from '../lib/intents.js'
 import { dayAnchor, dayLoad, formatMinutes, hasMeal, suggestMealTime, suggestNextTime } from '../lib/planner.js'
-import { distanceKm } from '../lib/geo.js'
+import { distanceKm, searchSpots, rememberPlace } from '../lib/geo.js'
 import { resolveSplit } from '../lib/computeBalances.js'
 import MultiSelect from './MultiSelect.jsx'
 import { PRICE_LEVELS, RATING_STEPS, priceLevelCount } from '../lib/placeFilters.js'
@@ -19,8 +19,12 @@ const placeKey = place => place.locationId || place.tripadvisorUrl || place.name
 const fmtDistance = km => km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`
 
 export default function PlacePicker({ day, initialIntent = 'top', initialView = 'list', onClose }) {
-  const { activeTrip, addActivity, searchPlaces, searchNearbyPlaces, fetchPlacePhoto } = useTrips()
+  const { activeTrip, addActivity, searchPlaces, searchNearbyPlaces, fetchPlacePhoto, addDayStop, removeDayStop } = useTrips()
   const { user } = useAuth()
+  // Paradas del día (otras ciudades/pueblos/parques de paso): location[0] es la
+  // ciudad del día; el resto son las paradas guardadas. La activa ancla la búsqueda.
+  const dayStops = activeTrip.preferences?.dayStops?.[day.id] || []
+  const locations = [{ name:day.city, stop:false }, ...dayStops.map(stop => ({ name:stop.name, latitude:stop.latitude, longitude:stop.longitude, stop:true }))]
   const expenseMembers = (activeTrip.members || []).filter(member => member.status === 'active')
   const [splitOpen, setSplitOpen] = useState(false)
   const [intentKey, setIntentKey] = useState(initialIntent)
@@ -48,6 +52,12 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const [showUnrated, setShowUnrated] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [limitMsg, setLimitMsg] = useState('')
+  const [activeLoc, setActiveLoc] = useState(0)
+  const [addingStop, setAddingStop] = useState(false)
+  const [stopQuery, setStopQuery] = useState('')
+  const [stopResults, setStopResults] = useState([])
+  const [stopBusy, setStopBusy] = useState(false)
+  const stopTimer = useRef(null)
   const photosRef = useRef({})
   const panelRef = useRef(null)
   const filterOverlayRef = useRef(null)
@@ -62,6 +72,8 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
 
   const intent = intentFor(intentKey)
   const effectiveAnchor = geoAnchor || anchor
+  const activeLocation = locations[activeLoc] || locations[0]
+  const activeLocationName = activeLocation?.name || day.city
 
   const togglePrice = id => setPriceLevels(list => (list.includes(id) ? list.filter(x => x !== id) : [...list, id]))
   const clearFilters = () => { setFilterTypes([]); setPriceLevels([]); setMinRating(0); setShowUnrated(false) }
@@ -90,11 +102,16 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
 
   useEffect(() => {
     if (geoAnchor) return
+    const loc = locations[activeLoc]
+    if (loc?.stop && loc.latitude != null && loc.longitude != null) {
+      setAnchor({ latitude:loc.latitude, longitude:loc.longitude, label:loc.name })
+      return
+    }
     let alive = true
     dayAnchor(day, activeTrip.hotels).then(point => { if (alive) setAnchor(point) })
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [day.id, geoAnchor])
+  }, [day.id, geoAnchor, activeLoc])
 
   const toggleGeo = () => {
     if (geoAnchor) { setGeoAnchor(null); setGeoError(''); return }
@@ -114,39 +131,35 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     )
   }
 
-  // El teclado de iOS encoge el visualViewport; el panel se ajusta igual que el asistente.
-  useEffect(() => {
-    const viewport = window.visualViewport
-    if (!viewport) return
-    // Altura de reposo = la mayor vista observada (sin teclado). Solo encogemos
-    // el panel cuando el teclado de iOS reduce visualViewport de forma marcada.
-    // Antes comparábamos contra window.innerHeight, que en iOS standalone es
-    // >100px mayor en reposo y disparaba un falso positivo dejando hueco abajo.
-    let restHeight = viewport.height
-    const syncViewport = () => {
-      const panel = panelRef.current
-      if (!panel) return
-      const vpH = viewport.height
-      if (vpH > restHeight) restHeight = vpH
-      if (vpH < restHeight - 140) {
-        panel.style.height = `${vpH}px`
-        panel.style.bottom = 'auto'
-      } else {
-        panel.style.height = ''
-        panel.style.bottom = '0'
-      }
-    }
-    const onOrientation = () => { restHeight = 0; setTimeout(syncViewport, 300) }
-    syncViewport()
-    viewport.addEventListener('resize', syncViewport)
-    viewport.addEventListener('scroll', syncViewport)
-    window.addEventListener('orientationchange', onOrientation)
-    return () => {
-      viewport.removeEventListener('resize', syncViewport)
-      viewport.removeEventListener('scroll', syncViewport)
-      window.removeEventListener('orientationchange', onOrientation)
-    }
-  }, [])
+  const changeStopQuery = value => {
+    setStopQuery(value)
+    clearTimeout(stopTimer.current)
+    if (value.trim().length < 2) { setStopResults([]); return }
+    stopTimer.current = setTimeout(async () => {
+      setStopBusy(true)
+      try { setStopResults(await searchSpots(value)) } catch { setStopResults([]) }
+      setStopBusy(false)
+    }, 350)
+  }
+
+  const chooseStop = async spot => {
+    rememberPlace(spot.name, spot.latitude, spot.longitude, spot.label)
+    const newIndex = dayStops.length + 1
+    setAddingStop(false); setStopQuery(''); setStopResults([])
+    const result = await addDayStop(day.id, spot)
+    if (result !== null) { setGeoAnchor(null); setActiveLoc(newIndex) }
+  }
+
+  const handleRemoveStop = async (stopName, index) => {
+    await removeDayStop(day.id, stopName)
+    setActiveLoc(current => (current === index ? 0 : current > index ? current - 1 : current))
+  }
+
+  // El panel se renderiza en un portal a document.body y es position:fixed
+  // top:0/bottom:0, así que cubre toda la pantalla. NO ajustamos su alto con
+  // visualViewport: al abrir el teclado de iOS eso lo encogía y dejaba ver el
+  // workspace por debajo. Con el panel a pantalla completa, el teclado lo
+  // tapa por abajo y los resultados (.picker-results) siguen scrolleando arriba.
 
   // El sheet de filtros también debe quedar sobre el teclado: cuando está abierto,
   // fijamos su alto al de la ventana visible (visualViewport) para que el desplegable
@@ -225,20 +238,18 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     } else {
       const isSeed = seed && !combined
       const options = { seed:isSeed, limit:8, enrich:true }
+      // La búsqueda se ancla a la UBICACIÓN ACTIVA (la ciudad del día o la parada
+      // seleccionada), no global. Para agregar paradas en ruta (Valley of Fire en
+      // un día de Zion), el usuario agrega la parada y la elige aquí: las coords y
+      // el nombre pasan a ser los de esa parada, así sus panoramas sí aparecen.
       if (effectiveAnchor) {
         options.latitude = effectiveAnchor.latitude
         options.longitude = effectiveAnchor.longitude
-        // Sugerencias/filtros sin texto: acotados a la zona del día. Pero cuando
-        // el usuario escribe un lugar puntual lo dejamos buscar SIN radio (las
-        // coords quedan solo como sesgo) para poder agregar paradas en ruta
-        // fuera de la ciudad del día — un parque o pueblo de paso.
-        if (!userText) options.radiusKm = isSeed ? 15 : 30
+        options.radiusKm = isSeed ? 15 : 30
       }
-      // Con GPS o con texto del usuario no anclamos a la ciudad del día (así un
-      // nombre específico de lugar matchea aunque esté lejos).
-      const cityForSearch = (geoAnchor || userText) ? '' : day.city
+      const cityForSearch = geoAnchor ? '' : activeLocationName
       result = await searchPlaces(isSeed ? intent.seedQuery : combined, cityForSearch, intent.category, options)
-      label = isSeed || !userText ? `${intent.suggestTitle} en ${day.city}` : `Resultados para “${userText}”`
+      label = isSeed || !userText ? `${intent.suggestTitle} en ${activeLocationName}` : `Resultados para “${userText}”`
     }
     if (seq !== requestSeq.current) return
     setBusy(false)
@@ -464,6 +475,36 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
           />
           {query && <button type="button" className="icon-btn" onClick={() => setQuery('')} aria-label="Limpiar búsqueda">✕</button>}
         </div>
+        <div className="picker-locations">
+          {locations.map((loc, index) => (
+            <span key={`${loc.name}-${index}`} className={`picker-loc-chip ${activeLoc === index && !geoAnchor ? 'active' : ''}`}>
+              <button type="button" onClick={() => { setGeoAnchor(null); setActiveLoc(index) }}>{loc.stop ? '📍 ' : ''}{loc.name}</button>
+              {loc.stop && <button type="button" className="picker-loc-remove" aria-label={`Quitar ${loc.name}`} onClick={() => handleRemoveStop(loc.name, index)}>✕</button>}
+            </span>
+          ))}
+          {!addingStop && <button type="button" className="picker-loc-add" onClick={() => setAddingStop(true)}>+ Parada</button>}
+        </div>
+        {addingStop && (
+          <div className="picker-stop-search">
+            <input
+              autoFocus
+              value={stopQuery}
+              onChange={event => changeStopQuery(event.target.value)}
+              placeholder="Ciudad, pueblo o parque de paso…"
+              aria-label="Buscar parada"
+            />
+            <button type="button" className="icon-btn" onClick={() => { setAddingStop(false); setStopQuery(''); setStopResults([]) }} aria-label="Cancelar parada">✕</button>
+            {(stopBusy || stopResults.length > 0) && (
+              <div className="autocomplete-results">
+                {stopBusy ? <span>Buscando lugares…</span> : stopResults.map(spot => (
+                  <button type="button" key={spot.id} onClick={() => chooseStop(spot)}>
+                    <b>{spot.name}</b><small>{spot.hint || spot.label}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div className="picker-toolbar">
           <div className="picker-view-toggle">
             <button type="button" className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>Lista</button>

@@ -256,3 +256,14 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .activity-hop{display:flex;align-items:center;padding-left:18px;margin:-3px 0 -1px}
 .activity-hop span{font-size:9px;font-weight:700;color:#9b91ad;background:#f5f2fa;padding:2px 9px;border-radius:999px;border:1px solid #efe9f7}
 @media (max-height:720px){.picker-map-card .pmc-photo{height:74px}.picker-map-card{flex-basis:210px}}
+
+.picker-locations{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.picker-loc-chip{display:inline-flex;align-items:center;border-radius:999px;background:#f5f2fa;border:1px solid #ece6f6;overflow:hidden}
+.picker-loc-chip button{padding:6px 11px;background:transparent;color:#8b789e;font-size:11px;font-weight:800}
+.picker-loc-chip.active{background:#eee8ff;border-color:#cbbaf2}
+.picker-loc-chip.active button{color:#7042ce}
+.picker-loc-remove{padding:6px 9px 6px 2px!important;color:#b9a8d6!important;font-size:10px!important}
+.picker-loc-add{padding:6px 11px;border-radius:999px;background:white;border:1px dashed #cbbaf2;color:#7042ce;font-size:11px;font-weight:800}
+.picker-stop-search{position:relative}
+.picker-stop-search input{font-weight:700;background:#faf8ff;padding-right:40px}
+.picker-stop-search>.icon-btn{position:absolute;right:9px;top:50%;transform:translateY(-50%)}

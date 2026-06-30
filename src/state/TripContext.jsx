@@ -359,6 +359,39 @@ export function TripProvider({ children }) {
         }
       }),
 
+      // Paradas de un día (otras ciudades/pueblos/parques de paso). Se guardan
+      // en trip.preferences.dayStops[dayId] para no requerir migración; cada
+      // parada lleva coords para anclar la búsqueda de panoramas ahí.
+      addDayStop: (dayId, stop) => run(async () => {
+        if (!activeTrip || !stop?.name) return
+        const prefs = activeTrip.preferences || {}
+        const dayStops = { ...(prefs.dayStops || {}) }
+        const existing = dayStops[dayId] || []
+        if (existing.some(item => item.name === stop.name)) return
+        dayStops[dayId] = [...existing, { name:stop.name, latitude:stop.latitude ?? null, longitude:stop.longitude ?? null, label:stop.label || stop.name }]
+        const preferences = { ...prefs, dayStops }
+        updateActive(trip => ({ ...trip, preferences }))
+        if (!hasSupabase) localStore.updateTrip(activeTrip.id, { preferences })
+        else {
+          const { error } = await supabase.from('trips').update({ preferences }).eq('id', activeTrip.id)
+          if (error) { await refresh(); throw error }
+        }
+      }),
+
+      removeDayStop: (dayId, stopName) => run(async () => {
+        if (!activeTrip) return
+        const prefs = activeTrip.preferences || {}
+        const dayStops = { ...(prefs.dayStops || {}) }
+        dayStops[dayId] = (dayStops[dayId] || []).filter(item => item.name !== stopName)
+        const preferences = { ...prefs, dayStops }
+        updateActive(trip => ({ ...trip, preferences }))
+        if (!hasSupabase) localStore.updateTrip(activeTrip.id, { preferences })
+        else {
+          const { error } = await supabase.from('trips').update({ preferences }).eq('id', activeTrip.id)
+          if (error) { await refresh(); throw error }
+        }
+      }),
+
       reorderDays: (firstId, secondId) => run(async () => {
         if (!activeTrip) return
         const first = activeTrip.days.find(day => day.id === firstId)
