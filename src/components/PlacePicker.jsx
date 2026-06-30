@@ -442,6 +442,43 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     </div>
   )
 
+  // Selector de ubicación (ciudad del día + paradas + "agregar parada"). Se usa
+  // tanto en la vista Lista como en la del Mapa para poder agregar paradas en ambas.
+  const locationSelector = (
+    <>
+      <div className="picker-locations">
+        {locations.map((loc, index) => (
+          <span key={`${loc.name}-${index}`} className={`picker-loc-chip ${activeLoc === index && !geoAnchor ? 'active' : ''}`}>
+            <button type="button" onClick={() => { setGeoAnchor(null); setActiveLoc(index) }}>{loc.stop ? '📍 ' : ''}{loc.name}</button>
+            {loc.stop && <button type="button" className="picker-loc-remove" aria-label={`Quitar ${loc.name}`} onClick={() => handleRemoveStop(loc.name, index)}>✕</button>}
+          </span>
+        ))}
+        {!addingStop && <button type="button" className="picker-loc-add" onClick={() => setAddingStop(true)}>+ Parada</button>}
+      </div>
+      {addingStop && (
+        <div className="picker-stop-search">
+          <input
+            autoFocus
+            value={stopQuery}
+            onChange={event => changeStopQuery(event.target.value)}
+            placeholder="Ciudad, pueblo o parque de paso…"
+            aria-label="Buscar parada"
+          />
+          <button type="button" className="icon-btn" onClick={() => { setAddingStop(false); setStopQuery(''); setStopResults([]) }} aria-label="Cancelar parada">✕</button>
+          {(stopBusy || stopResults.length > 0) && (
+            <div className="autocomplete-results">
+              {stopBusy ? <span>Buscando lugares…</span> : stopResults.map(spot => (
+                <button type="button" key={spot.id} onClick={() => chooseStop(spot)}>
+                  <b>{spot.name}</b><small>{spot.hint || spot.label}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  )
+
   return (
     <div className={`place-picker ${view === 'map' ? 'is-map' : ''}`} ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="picker-title" aria-label={intent.title} tabIndex={-1}>
       {view === 'list' && (<>
@@ -475,36 +512,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
           />
           {query && <button type="button" className="icon-btn" onClick={() => setQuery('')} aria-label="Limpiar búsqueda">✕</button>}
         </div>
-        <div className="picker-locations">
-          {locations.map((loc, index) => (
-            <span key={`${loc.name}-${index}`} className={`picker-loc-chip ${activeLoc === index && !geoAnchor ? 'active' : ''}`}>
-              <button type="button" onClick={() => { setGeoAnchor(null); setActiveLoc(index) }}>{loc.stop ? '📍 ' : ''}{loc.name}</button>
-              {loc.stop && <button type="button" className="picker-loc-remove" aria-label={`Quitar ${loc.name}`} onClick={() => handleRemoveStop(loc.name, index)}>✕</button>}
-            </span>
-          ))}
-          {!addingStop && <button type="button" className="picker-loc-add" onClick={() => setAddingStop(true)}>+ Parada</button>}
-        </div>
-        {addingStop && (
-          <div className="picker-stop-search">
-            <input
-              autoFocus
-              value={stopQuery}
-              onChange={event => changeStopQuery(event.target.value)}
-              placeholder="Ciudad, pueblo o parque de paso…"
-              aria-label="Buscar parada"
-            />
-            <button type="button" className="icon-btn" onClick={() => { setAddingStop(false); setStopQuery(''); setStopResults([]) }} aria-label="Cancelar parada">✕</button>
-            {(stopBusy || stopResults.length > 0) && (
-              <div className="autocomplete-results">
-                {stopBusy ? <span>Buscando lugares…</span> : stopResults.map(spot => (
-                  <button type="button" key={spot.id} onClick={() => chooseStop(spot)}>
-                    <b>{spot.name}</b><small>{spot.hint || spot.label}</small>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {locationSelector}
         <div className="picker-toolbar">
           <div className="picker-view-toggle">
             <button type="button" className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>Lista</button>
@@ -659,6 +667,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
                 </button>
               ))}
             </div>
+            {locationSelector}
             <div className="map-tool-row">
               <button type="button" className={`picker-filter-btn ${activeFilterCount ? 'on' : ''}`} onClick={() => setFiltersOpen(true)}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4" /></svg>
