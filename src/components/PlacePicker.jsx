@@ -228,10 +228,15 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       if (effectiveAnchor) {
         options.latitude = effectiveAnchor.latitude
         options.longitude = effectiveAnchor.longitude
-        options.radiusKm = isSeed ? 15 : 30
+        // Sugerencias/filtros sin texto: acotados a la zona del día. Pero cuando
+        // el usuario escribe un lugar puntual lo dejamos buscar SIN radio (las
+        // coords quedan solo como sesgo) para poder agregar paradas en ruta
+        // fuera de la ciudad del día — un parque o pueblo de paso.
+        if (!userText) options.radiusKm = isSeed ? 15 : 30
       }
-      // Si el anchor es GPS no anclamos la búsqueda a la ciudad del día.
-      const cityForSearch = geoAnchor ? '' : day.city
+      // Con GPS o con texto del usuario no anclamos a la ciudad del día (así un
+      // nombre específico de lugar matchea aunque esté lejos).
+      const cityForSearch = (geoAnchor || userText) ? '' : day.city
       result = await searchPlaces(isSeed ? intent.seedQuery : combined, cityForSearch, intent.category, options)
       label = isSeed || !userText ? `${intent.suggestTitle} en ${day.city}` : `Resultados para “${userText}”`
     }

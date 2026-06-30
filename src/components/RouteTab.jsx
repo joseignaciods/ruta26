@@ -37,6 +37,14 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
   const [daySpots, setDaySpots] = useState([])
   const [daySpotsBusy, setDaySpotsBusy] = useState(false)
   const daySpotTimer = useRef(null)
+  const composerRef = useRef(null)
+
+  // El editor de panorama es un formulario inline al final del día; al abrirlo
+  // (editar o "a mano") lo traemos a la vista para que no parezca que "no pasa
+  // nada" cuando queda fuera de pantalla en móvil.
+  useEffect(() => {
+    if (composerDayId) composerRef.current?.scrollIntoView({ behavior:'smooth', block:'center' })
+  }, [composerDayId, editingActivityId])
 
   // Autocompletado del campo "Ciudad o lugar" del día: sugiere lugares reales
   // del mapa (ciudades, pueblos, parques, paradas) para no escribir mal el
@@ -335,7 +343,7 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
               )}
 
               {composerDayId === day.id && (
-                <form className="activity-composer" onSubmit={event => createActivity(event, day.id)}>
+                <form ref={composerRef} className="activity-composer" onSubmit={event => createActivity(event, day.id)}>
                   <div className="composer-heading">
                     <div><span>{editingActivityId ? 'EDITAR PANORAMA' : 'NUEVO PANORAMA'}</span><h4>¿Qué quieres hacer?</h4></div>
                     <button type="button" className="icon-btn" onClick={closeComposer}>✕</button>
