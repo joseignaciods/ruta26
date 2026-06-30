@@ -45,6 +45,25 @@ export function rememberPlace(query, lat, lon, label) {
   } catch { /* localStorage lleno o no disponible */ }
 }
 
+// Geocoding inverso: nombre del lugar más cercano a un punto del mapa (para
+// elegir paradas tocando el mapa). Usa photon como searchSpots.
+export async function reverseSpot(lat, lon) {
+  try {
+    const params = new URLSearchParams({ lat:String(lat), lon:String(lon) })
+    const response = await fetch(`https://photon.komoot.io/reverse?${params}`)
+    if (!response.ok) return null
+    const data = await response.json()
+    const feature = (data.features || [])[0]
+    const properties = feature?.properties || {}
+    const name = properties.name || properties.city || properties.town || properties.village || properties.county || properties.state
+    if (!name) return null
+    const hint = [properties.city && properties.city !== name ? properties.city : '', properties.state, properties.country].filter(Boolean).join(', ')
+    return { name, label:[name, hint].filter(Boolean).join(', '), hint, latitude:Number(lat), longitude:Number(lon) }
+  } catch {
+    return null
+  }
+}
+
 export const distanceKm = (first, second) => {
   const toRadians = value => value * Math.PI / 180
   const latDistance = toRadians(second[0] - first[0])

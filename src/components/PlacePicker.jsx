@@ -6,7 +6,7 @@ import { useAuth } from '../state/AuthContext.jsx'
 import CategoryIcon, { categoryFor, pinHtml } from './CategoryIcon.jsx'
 import { inferCategory, intentFor, intents } from '../lib/intents.js'
 import { dayAnchor, dayLoad, formatMinutes, hasMeal, suggestMealTime, suggestNextTime } from '../lib/planner.js'
-import { distanceKm, searchSpots, rememberPlace } from '../lib/geo.js'
+import { distanceKm, searchSpots, rememberPlace, reverseSpot } from '../lib/geo.js'
 import { resolveSplit } from '../lib/computeBalances.js'
 import MultiSelect from './MultiSelect.jsx'
 import { PRICE_LEVELS, RATING_STEPS, priceLevelCount } from '../lib/placeFilters.js'
@@ -58,6 +58,9 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const [stopResults, setStopResults] = useState([])
   const [stopBusy, setStopBusy] = useState(false)
   const stopTimer = useRef(null)
+  // Mapa: panel de resultados plegable (más mapa) y punto elegido al tocar el mapa.
+  const [mapSheetOpen, setMapSheetOpen] = useState(false)
+  const [mapPick, setMapPick] = useState(null)
   const photosRef = useRef({})
   const panelRef = useRef(null)
   const filterOverlayRef = useRef(null)
@@ -153,6 +156,25 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const handleRemoveStop = async (stopName, index) => {
     await removeDayStop(day.id, stopName)
     setActiveLoc(current => (current === index ? 0 : current > index ? current - 1 : current))
+  }
+
+  const addPickAsStop = async () => {
+    if (!mapPick || mapPick.loading) return
+    const pick = mapPick
+    setMapPick(null)
+    rememberPlace(pick.name, pick.latitude, pick.longitude, pick.label)
+    const newIndex = dayStops.length + 1
+    const result = await addDayStop(day.id, { name:pick.name, latitude:pick.latitude, longitude:pick.longitude, label:pick.label })
+    if (result !== null) { setGeoAnchor(null); setActiveLoc(newIndex) }
+  }
+
+  const searchPickArea = () => {
+    if (!mapPick) return
+    const clean = query.trim()
+    lastProgrammaticMove.current = Date.now()
+    mapRef.current?.setView([mapPick.latitude, mapPick.longitude], 12)
+    runSearch({ text:clean.length >= 3 ? clean : '', area:{ latitude:mapPick.latitude, longitude:mapPick.longitude, radiusKm:15 } })
+    setMapPick(null)
   }
 
   // El panel se renderiza en un portal a document.body y es position:fixed
@@ -317,6 +339,16 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       if (Date.now() - lastProgrammaticMove.current < 800) return
       setAreaSearch(true)
     })
+    // Tocar el mapa (no un pin): resolvemos el lugar más cercano para poder
+    // agregarlo como parada o buscar ahí, sin tener que escribirlo.
+    map.on('click', async event => {
+      const { lat, lng } = event.latlng
+      setMapPick({ latitude:lat, longitude:lng, name:'', label:'', loading:true })
+      const spot = await reverseSpot(lat, lng)
+      setMapPick(current => (current && current.latitude === lat && current.longitude === lng)
+        ? { latitude:lat, longitude:lng, name:spot?.name || 'Este punto', label:spot?.label || '', loading:false }
+        : current)
+    })
     setTimeout(() => { mapRef.current === map && map.invalidateSize() }, 60)
     return () => {
       map.remove()
@@ -340,9 +372,10 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       const marker = L.marker([place.latitude, place.longitude], { icon })
         .on('click', () => {
           setActiveKey(key)
+          setMapSheetOpen(true)
           lastProgrammaticMove.current = Date.now()
           map.panTo([place.latitude, place.longitude])
-          document.getElementById(`picker-map-card-${index}`)?.scrollIntoView({ behavior:'smooth', inline:'center', block:'nearest' })
+          setTimeout(() => document.getElementById(`picker-map-card-${index}`)?.scrollIntoView({ behavior:'smooth', inline:'center', block:'nearest' }), 60)
         })
         .addTo(layer)
       markerByKey.current[key] = marker
@@ -680,25 +713,43 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
               {(geoError || effectiveAnchor) && <small className="map-anchor">{geoError || `Cerca de ${effectiveAnchor.label}`}</small>}
             </div>
           </div>
-          {areaSearch && !busy && (
+          {areaSearch && !busy && !mapPick && (
             <button type="button" className="picker-area-btn" onClick={searchThisArea}>Buscar en esta zona</button>
           )}
           {busy && <div className="picker-map-note">Buscando buenas opciones…</div>}
-          {!busy && !located.length && (
+          {!busy && !located.length && !mapPick && (
             <div className="picker-map-note">
               {visiblePlaces.length
                 ? 'Estos resultados no traen coordenadas; revísalos en la lista.'
-                : 'Mueve el mapa y toca “Buscar en esta zona”.'}
+                : 'Toca el mapa para elegir un lugar, o muévelo y “Buscar en esta zona”.'}
             </div>
           )}
-          <div className="map-bottom-sheet">
+          {mapPick && (
+            <div className="map-pick-prompt">
+              <div className="mpp-info">
+                <small>Punto del mapa</small>
+                <b>{mapPick.loading ? 'Buscando lugar…' : `📍 ${mapPick.name}`}</b>
+              </div>
+              <div className="mpp-actions">
+                <button type="button" onClick={searchPickArea}>Buscar aquí</button>
+                <button type="button" className="mpp-primary" disabled={mapPick.loading} onClick={addPickAsStop}>+ Parada</button>
+                <button type="button" className="icon-btn" onClick={() => setMapPick(null)} aria-label="Cerrar punto">✕</button>
+              </div>
+            </div>
+          )}
+          <div className={`map-bottom-sheet ${mapSheetOpen ? 'open' : ''}`}>
           {dayStrip}
-          {located.length > 0 && located.length < visiblePlaces.length && (
+          {located.length > 0 && (
+            <button type="button" className="map-sheet-handle" onClick={() => setMapSheetOpen(open => !open)}>
+              {mapSheetOpen ? 'Plegar resultados ▾' : `Ver ${located.length} lugar${located.length > 1 ? 'es' : ''} ▴`}
+            </button>
+          )}
+          {mapSheetOpen && located.length > 0 && located.length < visiblePlaces.length && (
             <p className="picker-map-coordless">
               {visiblePlaces.length - located.length} sin ubicación · míralos en la lista
             </p>
           )}
-          {located.length > 0 && (
+          {mapSheetOpen && located.length > 0 && (
             <div className="picker-map-cards">
               {located.map((place, index) => {
                 const added = addedKeys.includes(placeKey(place))

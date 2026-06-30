@@ -267,3 +267,15 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .picker-stop-search{position:relative}
 .picker-stop-search input{font-weight:700;background:#faf8ff;padding-right:40px}
 .picker-stop-search>.icon-btn{position:absolute;right:9px;top:50%;transform:translateY(-50%)}
+
+.map-sheet-handle{align-self:center;padding:5px 16px;margin-bottom:2px;border-radius:999px;background:#f1ecff;color:#7042ce;font-size:11px;font-weight:800}
+.map-bottom-sheet:not(.open){padding-bottom:calc(6px + env(safe-area-inset-bottom))}
+.map-pick-prompt{position:absolute;left:12px;right:12px;bottom:calc(104px + env(safe-area-inset-bottom));z-index:550;background:white;border-radius:16px;box-shadow:0 12px 32px #1e104026;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.mpp-info{min-width:0}
+.mpp-info small{display:block;font-size:8px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#9b91ad}
+.mpp-info b{font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mpp-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.mpp-actions button{padding:7px 11px;border-radius:999px;font-size:11px;font-weight:800;background:#f4efff;color:#7042ce}
+.mpp-actions .mpp-primary{background:var(--grad);color:white}
+.mpp-actions .mpp-primary:disabled{opacity:.6}
+.mpp-actions .icon-btn{padding:0;width:30px;height:30px;background:#f5f2fa;color:#8b789e;flex:0 0 auto}
