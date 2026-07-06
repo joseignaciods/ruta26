@@ -279,3 +279,5 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .mpp-actions .mpp-primary{background:var(--grad);color:white}
 .mpp-actions .mpp-primary:disabled{opacity:.6}
 .mpp-actions .icon-btn{padding:0;width:30px;height:30px;background:#f5f2fa;color:#8b789e;flex:0 0 auto}
+
+.autocomplete-field .autocomplete-clear{position:absolute;right:9px;top:32px;width:26px;height:26px;border-radius:50%;background:#f1ecff;color:#8b789e;font-size:11px;display:grid;place-items:center}

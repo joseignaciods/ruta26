@@ -23,8 +23,16 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
   const { user } = useAuth()
   // Paradas del día (otras ciudades/pueblos/parques de paso): location[0] es la
   // ciudad del día; el resto son las paradas guardadas. La activa ancla la búsqueda.
-  const dayStops = activeTrip.preferences?.dayStops?.[day.id] || []
-  const locations = [{ name:day.city, stop:false }, ...dayStops.map(stop => ({ name:stop.name, latitude:stop.latitude, longitude:stop.longitude, stop:true }))]
+  // Ubicaciones del día para las sugerencias: origen (ciudad) → paradas de paso →
+  // destino (kind:'destination'). La activa ancla la búsqueda ahí.
+  const allStops = activeTrip.preferences?.dayStops?.[day.id] || []
+  const routeStops = allStops.filter(item => item.kind !== 'destination')
+  const dayDestination = allStops.find(item => item.kind === 'destination') || null
+  const locations = [
+    { name:day.city, stop:false },
+    ...routeStops.map(stop => ({ name:stop.name, latitude:stop.latitude, longitude:stop.longitude, stop:true })),
+    ...(dayDestination ? [{ name:dayDestination.name, latitude:dayDestination.latitude, longitude:dayDestination.longitude, stop:true, destination:true }] : [])
+  ]
   const expenseMembers = (activeTrip.members || []).filter(member => member.status === 'active')
   const [splitOpen, setSplitOpen] = useState(false)
   const [intentKey, setIntentKey] = useState(initialIntent)
@@ -147,7 +155,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
 
   const chooseStop = async spot => {
     rememberPlace(spot.name, spot.latitude, spot.longitude, spot.label)
-    const newIndex = dayStops.length + 1
+    const newIndex = routeStops.length + 1
     setAddingStop(false); setStopQuery(''); setStopResults([])
     const result = await addDayStop(day.id, spot)
     if (result !== null) { setGeoAnchor(null); setActiveLoc(newIndex) }
@@ -163,7 +171,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
     const pick = mapPick
     setMapPick(null)
     rememberPlace(pick.name, pick.latitude, pick.longitude, pick.label)
-    const newIndex = dayStops.length + 1
+    const newIndex = routeStops.length + 1
     const result = await addDayStop(day.id, { name:pick.name, latitude:pick.latitude, longitude:pick.longitude, label:pick.label })
     if (result !== null) { setGeoAnchor(null); setActiveLoc(newIndex) }
   }
@@ -482,7 +490,7 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       <div className="picker-locations">
         {locations.map((loc, index) => (
           <span key={`${loc.name}-${index}`} className={`picker-loc-chip ${activeLoc === index && !geoAnchor ? 'active' : ''}`}>
-            <button type="button" onClick={() => { setGeoAnchor(null); setActiveLoc(index) }}>{loc.stop ? '📍 ' : ''}{loc.name}</button>
+            <button type="button" onClick={() => { setGeoAnchor(null); setActiveLoc(index) }}>{loc.destination ? '🏁 ' : loc.stop ? '📍 ' : ''}{loc.name}</button>
             {loc.stop && <button type="button" className="picker-loc-remove" aria-label={`Quitar ${loc.name}`} onClick={() => handleRemoveStop(loc.name, index)}>✕</button>}
           </span>
         ))}

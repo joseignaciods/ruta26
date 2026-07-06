@@ -18,10 +18,13 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
   const {
     activeTrip, addDay, updateDay, deleteDay, reorderDays,
     addActivity, updateActivity, deleteActivity, reorderActivities,
-    searchPlaces
+    searchPlaces, setDayDestination
   } = useTrips()
+
+  // Destino guardado de un día (parada especial kind:'destination').
+  const dayDestinationOf = dayId => (activeTrip.preferences?.dayStops?.[dayId] || []).find(item => item.kind === 'destination') || null
   const [showDay, setShowDay] = useState(false)
-  const [dayForm, setDayForm] = useState({ city:'', title:'', date:'' })
+  const [dayForm, setDayForm] = useState({ city:'', title:'', date:'', destName:'', destPlace:null })
   const [editingDayId, setEditingDayId] = useState(null)
   const [editingActivityId, setEditingActivityId] = useState(null)
   const [orderingDayId, setOrderingDayId] = useState(null)
@@ -37,6 +40,9 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
   const [daySpots, setDaySpots] = useState([])
   const [daySpotsBusy, setDaySpotsBusy] = useState(false)
   const daySpotTimer = useRef(null)
+  const [destSpots, setDestSpots] = useState([])
+  const [destSpotsBusy, setDestSpotsBusy] = useState(false)
+  const destSpotTimer = useRef(null)
   const composerRef = useRef(null)
 
   // El editor de panorama es un formulario inline al final del día; al abrirlo
@@ -67,9 +73,27 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
     setDaySpots([])
   }
 
+  // Campo "Hasta (destino)": mismo autocompletado que el origen.
+  const changeDest = value => {
+    setDayForm(current => ({ ...current, destName:value, destPlace:null }))
+    clearTimeout(destSpotTimer.current)
+    if (value.trim().length < 2) { setDestSpots([]); return }
+    destSpotTimer.current = setTimeout(async () => {
+      setDestSpotsBusy(true)
+      try { setDestSpots(await searchSpots(value)) } catch { setDestSpots([]) }
+      setDestSpotsBusy(false)
+    }, 350)
+  }
+
+  const chooseDest = spot => {
+    rememberPlace(spot.name, spot.latitude, spot.longitude, spot.label)
+    setDayForm(current => ({ ...current, destName:spot.name, destPlace:{ name:spot.name, latitude:spot.latitude, longitude:spot.longitude, label:spot.label } }))
+    setDestSpots([])
+  }
+
   // Limpia sugerencias y timer cuando se cierra el modal o se desmonta.
-  useEffect(() => { if (!showDay) { setDaySpots([]); clearTimeout(daySpotTimer.current) } }, [showDay])
-  useEffect(() => () => clearTimeout(daySpotTimer.current), [])
+  useEffect(() => { if (!showDay) { setDaySpots([]); setDestSpots([]); clearTimeout(daySpotTimer.current); clearTimeout(destSpotTimer.current) } }, [showDay])
+  useEffect(() => () => { clearTimeout(daySpotTimer.current); clearTimeout(destSpotTimer.current) }, [])
 
   // Avisa al workspace para que oculte nav + FAB mientras el picker o el
   // generador de itinerario están abiertos (ambos son pantallas completas).
@@ -82,12 +106,29 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
 
   const createDay = async event => {
     event.preventDefault()
-    const result = editingDayId ? await updateDay(editingDayId, dayForm) : await addDay(dayForm)
-    if (result !== null) {
-      setShowDay(false)
-      setEditingDayId(null)
-      setDayForm({ city:'', title:'', date:'' })
+    const dayValues = { city:dayForm.city, title:dayForm.title, date:dayForm.date }
+    let dayId = editingDayId
+    if (editingDayId) {
+      if (await updateDay(editingDayId, dayValues) === null) return
+    } else {
+      dayId = await addDay(dayValues)
+      if (dayId == null) return
     }
+    // Destino: usa el lugar elegido, o geocodifica el texto como respaldo.
+    const destName = (dayForm.destName || '').trim()
+    let destPlace = dayForm.destPlace
+    if (destName && !destPlace) {
+      try {
+        const spot = (await searchSpots(destName))[0]
+        destPlace = spot ? { name:destName, latitude:spot.latitude, longitude:spot.longitude, label:spot.label } : { name:destName }
+      } catch { destPlace = { name:destName } }
+    }
+    await setDayDestination(dayId, destName ? destPlace : null)
+    setShowDay(false)
+    setEditingDayId(null)
+    setDayForm({ city:'', title:'', date:'', destName:'', destPlace:null })
+    setDaySpots([])
+    setDestSpots([])
   }
 
   const closeComposer = () => {
@@ -146,13 +187,25 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
 
   const openDayForm = day => {
     setEditingDayId(day?.id || null)
-    setDayForm(day
-      ? { city:day.city, title:day.title, date:day.date || '' }
-      : {
-          city:'',
-          title:'',
-          date:activeTrip.startDate ? addDays(activeTrip.startDate, activeTrip.days.length) : ''
-        })
+    if (day) {
+      const dest = dayDestinationOf(day.id)
+      setDayForm({
+        city:day.city, title:day.title, date:day.date || '',
+        destName:dest?.name || '',
+        destPlace:dest ? { name:dest.name, latitude:dest.latitude, longitude:dest.longitude, label:dest.label } : null
+      })
+    } else {
+      // Día nuevo: el origen hereda dónde terminó/durmió el día anterior.
+      const prevDay = activeTrip.days[activeTrip.days.length - 1]
+      const prevDest = prevDay ? dayDestinationOf(prevDay.id) : null
+      const originName = prevDest?.name || prevDay?.city || ''
+      if (prevDest?.latitude != null) rememberPlace(prevDest.name, prevDest.latitude, prevDest.longitude, prevDest.label)
+      setDayForm({
+        city:originName, title:'',
+        date:activeTrip.startDate ? addDays(activeTrip.startDate, activeTrip.days.length) : '',
+        destName:'', destPlace:null
+      })
+    }
     setShowDay(true)
   }
 
@@ -245,7 +298,7 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
           <button type="button" className="day-head" onClick={() => toggleDay(day.id)}>
             <div className="day-number">{day.position}</div>
             <div className="day-info">
-              <span>{formatDate(day.date) || 'Sin fecha'} · {day.city}</span>
+              <span>{formatDate(day.date) || 'Sin fecha'} · {day.city}{dayDestinationOf(day.id) ? ` → ${dayDestinationOf(day.id).name}` : ''}</span>
               <h3>{day.title}</h3>
               <div className="day-preview">
                 {day.activities.slice(0, 6).map(activity => <CategoryIcon key={activity.id} name={activity.category} />)}
@@ -418,10 +471,10 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
         <div className="modal-backdrop" onClick={() => setShowDay(false)}>
           <form className="modal-card" onSubmit={createDay} onClick={event => event.stopPropagation()}>
             <h2>{editingDayId ? 'Editar día' : 'Agregar día'}</h2>
-            <label className="autocomplete-field">Ciudad o lugar
+            <label className="autocomplete-field">Desde <span className="optional-label">origen</span>
               <input autoFocus required autoComplete="off" value={dayForm.city}
                 onChange={e => changeDayCity(e.target.value)}
-                placeholder="Ciudad, pueblo, parque, parada..." />
+                placeholder="Dónde empiezas el día" />
               {(daySpotsBusy || daySpots.length > 0) && (
                 <div className="autocomplete-results">
                   {daySpotsBusy
@@ -435,7 +488,25 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                 </div>
               )}
             </label>
-            <label>Título<input value={dayForm.title} onChange={e => setDayForm({ ...dayForm, title:e.target.value })} /></label>
+            <label className="autocomplete-field">Hasta <span className="optional-label">destino · opcional</span>
+              <input autoComplete="off" value={dayForm.destName}
+                onChange={e => changeDest(e.target.value)}
+                placeholder="Si terminas en otro pueblo" />
+              {dayForm.destName && <button type="button" className="autocomplete-clear" onClick={() => { setDayForm({ ...dayForm, destName:'', destPlace:null }); setDestSpots([]) }} aria-label="Quitar destino">✕</button>}
+              {(destSpotsBusy || destSpots.length > 0) && (
+                <div className="autocomplete-results">
+                  {destSpotsBusy
+                    ? <span>Buscando lugares...</span>
+                    : destSpots.map(spot => (
+                        <button type="button" key={spot.id} onClick={() => chooseDest(spot)}>
+                          {spot.name}
+                          {spot.hint && <small>{spot.hint}</small>}
+                        </button>
+                      ))}
+                </div>
+              )}
+            </label>
+            <label>Título <span className="optional-label">opcional</span><input value={dayForm.title} onChange={e => setDayForm({ ...dayForm, title:e.target.value })} /></label>
             <label>Fecha<input type="date" value={dayForm.date} onChange={e => setDayForm({ ...dayForm, date:e.target.value })} /></label>
             <div className="modal-actions">
               <button type="button" className="ghost-btn" onClick={() => { setShowDay(false); setEditingDayId(null) }}>Cancelar</button>

@@ -288,6 +288,7 @@ export function TripProvider({ children }) {
         if (!hasSupabase) {
           const trip = mapTrip(localStore.addDay(activeTrip.id, values))
           updateActive(() => trip)
+          return trip.days[trip.days.length - 1]?.id ?? null
         }
         else {
           const temporaryId = optimisticId()
@@ -311,6 +312,7 @@ export function TripProvider({ children }) {
           }).select('*').single()
           if (error) { await refresh(); throw error }
           updateActive(trip => ({ ...trip, days:trip.days.map(day => day.id === temporaryId ? { ...data, activities:[] } : day).sort(byPosition) }))
+          return data.id
         }
       }),
 
@@ -383,6 +385,26 @@ export function TripProvider({ children }) {
         const prefs = activeTrip.preferences || {}
         const dayStops = { ...(prefs.dayStops || {}) }
         dayStops[dayId] = (dayStops[dayId] || []).filter(item => item.name !== stopName)
+        const preferences = { ...prefs, dayStops }
+        updateActive(trip => ({ ...trip, preferences }))
+        if (!hasSupabase) localStore.updateTrip(activeTrip.id, { preferences })
+        else {
+          const { error } = await supabase.from('trips').update({ preferences }).eq('id', activeTrip.id)
+          if (error) { await refresh(); throw error }
+        }
+      }),
+
+      // Destino del día (dónde termina/duerme). Se guarda como una parada
+      // especial kind:'destination' en dayStops para reusar todo lo de paradas.
+      // place=null lo quita (día base sin traslado).
+      setDayDestination: (dayId, place) => run(async () => {
+        if (!activeTrip) return
+        const prefs = activeTrip.preferences || {}
+        const dayStops = { ...(prefs.dayStops || {}) }
+        const withoutDest = (dayStops[dayId] || []).filter(item => item.kind !== 'destination')
+        dayStops[dayId] = place?.name
+          ? [...withoutDest, { name:place.name, latitude:place.latitude ?? null, longitude:place.longitude ?? null, label:place.label || place.name, kind:'destination' }]
+          : withoutDest
         const preferences = { ...prefs, dayStops }
         updateActive(trip => ({ ...trip, preferences }))
         if (!hasSupabase) localStore.updateTrip(activeTrip.id, { preferences })
