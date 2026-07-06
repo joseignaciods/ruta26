@@ -271,7 +271,11 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
   }
 
   const onNameChange = (day, value) => {
-    setActForm(current => ({ ...current, name:value, latitude:null, longitude:null, tripadvisorLocationId:'' }))
+    // Solo se actualiza el nombre: las coordenadas y el id se CONSERVAN. Antes se
+    // borraban en cada tecla, así que corregir un typo del nombre dejaba el
+    // panorama sin ubicación (desaparecía del mapa y de los traslados). Las coords
+    // solo cambian si el usuario elige una sugerencia nueva (pickSuggestion).
+    setActForm(current => ({ ...current, name:value }))
     clearTimeout(acTimer.current)
     const clean = value.trim()
     if (clean.length < 3) {
