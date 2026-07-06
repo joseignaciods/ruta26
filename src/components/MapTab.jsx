@@ -11,6 +11,46 @@ const hasCoords = item => item.latitude != null && item.longitude != null
 const mapsUrl = item => `https://www.google.com/maps/search/?api=1&query=${item.latitude},${item.longitude}`
 const dayColors = ['#8b5cf6', '#0ea5a8', '#f59e0b', '#c44e92', '#2563eb', '#16a34a']
 
+const avgCoords = items => {
+  const located = (items || []).filter(hasCoords)
+  if (!located.length) return null
+  return [
+    located.reduce((sum, item) => sum + item.latitude, 0) / located.length,
+    located.reduce((sum, item) => sum + item.longitude, 0) / located.length
+  ]
+}
+
+// Coordenada de un día SIN geocodificar su nombre (que es ambiguo: "Williams"
+// cae en Iowa). Usa lo que ya tenemos exacto: promedio de panoramas ubicados →
+// hotel de esa misma ciudad → parada/destino guardado. null si no hay ninguna
+// pista y toca geocodificar (ahí se sesga con el viewbox del viaje).
+const knownDayPoint = (day, dayStops = [], hotels = []) => {
+  const fromActivities = avgCoords(day.activities)
+  if (fromActivities) return fromActivities
+  const hotel = (hotels || []).find(item => hasCoords(item) && item.city?.trim().toLowerCase() === day.city?.trim().toLowerCase())
+  if (hotel) return [hotel.latitude, hotel.longitude]
+  const stop = (dayStops || []).find(item => item.latitude != null && item.longitude != null)
+  if (stop) return [stop.latitude, stop.longitude]
+  return null
+}
+
+// Caja envolvente (con margen) de todo lo que el viaje tiene ubicado, para sesgar
+// el geocoding de nombres ambiguos hacia la región real del viaje.
+const tripViewbox = trip => {
+  const points = []
+  for (const day of trip.days) {
+    ;(day.activities || []).forEach(item => { if (hasCoords(item)) points.push([item.latitude, item.longitude]) })
+    ;(trip.preferences?.dayStops?.[day.id] || []).forEach(item => { if (item.latitude != null && item.longitude != null) points.push([item.latitude, item.longitude]) })
+  }
+  ;(trip.hotels || []).forEach(item => { if (hasCoords(item)) points.push([item.latitude, item.longitude]) })
+  if (!points.length) return null
+  const lats = points.map(point => point[0])
+  const lons = points.map(point => point[1])
+  const pad = 1.2
+  // Nominatim viewbox: lonMin,latMax,lonMax,latMin
+  return `${(Math.min(...lons) - pad).toFixed(2)},${(Math.max(...lats) + pad).toFixed(2)},${(Math.max(...lons) + pad).toFixed(2)},${(Math.min(...lats) - pad).toFixed(2)}`
+}
+
 // Marcador de un punto de la ruta del día: origen (Salida), destino (Llegada) o
 // una parada de paso numerada. Se dibuja aparte de los pines de panorama.
 const routeWaypointIcon = (kind, label) => L.divIcon({
@@ -67,6 +107,7 @@ export default function MapTab() {
       const route = []
       let routeDrawn = false
       setRouteInfo(null)
+      const viewbox = tripViewbox(activeTrip)
       const visibleDays = selectedDay ? [selectedDay] : activeTrip.days
       const dayActivityCoords = selectedDay ? selectedDay.activities.filter(hasCoords) : []
 
@@ -116,7 +157,12 @@ export default function MapTab() {
         }
         for (const group of cityGroups) {
           try {
-            const point = await geocodeCity(group.city)
+            // Coords exactas que ya tenemos (panoramas/destino/hotel) antes de
+            // geocodificar el nombre; si toca geocodificar, sesgado a la región.
+            const known = group.days
+              .map(day => knownDayPoint(day, activeTrip.preferences?.dayStops?.[day.id], activeTrip.hotels))
+              .find(Boolean)
+            const point = known ? { lat:known[0], lon:known[1] } : await geocodeCity(group.city, { viewbox })
             if (!alive || !point) continue
             const latLng = [point.lat, point.lon]
             points.push(latLng)
@@ -131,7 +177,8 @@ export default function MapTab() {
         }
       } else if (selectedDay && dayActivityCoords.length === 0) {
         try {
-          const point = await geocodeCity(selectedDay.city)
+          const known = knownDayPoint(selectedDay, activeTrip.preferences?.dayStops?.[selectedDay.id], activeTrip.hotels)
+          const point = known ? { lat:known[0], lon:known[1] } : await geocodeCity(selectedDay.city, { viewbox })
           if (alive && point) {
             const latLng = [point.lat, point.lon]
             points.push(latLng)
@@ -236,7 +283,7 @@ export default function MapTab() {
       map.remove()
       mapRef.current = null
     }
-  }, [activeTrip.days, activeTrip.hotels, activeTrip.preferences?.dayStops, isSingleCityTrip, selectedDay, selectedDayId])
+  }, [activeTrip, isSingleCityTrip, selectedDay, selectedDayId])
 
   const locate = async activity => {
     if (!selectedDay || !activity.address) return

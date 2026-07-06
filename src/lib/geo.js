@@ -11,9 +11,12 @@ const throttled = async fn => {
   return fn()
 }
 
-export async function geocodeQuery(query) {
+// `viewbox` (opcional): "lonMin,latMax,lonMax,latMin" para SESGAR el resultado a
+// una región (no restringir). Clave para nombres ambiguos: "Williams" cae en
+// Iowa si no se acota, pero con el viewbox del viaje resuelve a Williams, Arizona.
+export async function geocodeQuery(query, { viewbox } = {}) {
   if (!query) return null
-  const key = keyFor(query)
+  const key = keyFor(query) + (viewbox ? `_vb_${viewbox}` : '')
   const cached = localStorage.getItem(key)
   if (cached) return JSON.parse(cached)
   const params = new URLSearchParams({
@@ -23,6 +26,8 @@ export async function geocodeQuery(query) {
     email:nominatimEmail,
     q:query
   })
+  // bounded=0 → prefiere resultados dentro del viewbox pero permite fuera.
+  if (viewbox) { params.set('viewbox', viewbox); params.set('bounded', '0') }
   const response = await throttled(() => fetch(`https://nominatim.openstreetmap.org/search?${params}`))
   if (!response.ok) throw new Error('No se pudo geocodificar la ubicación')
   const [result] = await response.json()
