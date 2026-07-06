@@ -11,6 +11,17 @@ export function dayHotel(day, hotels = []) {
 
 const samePlace = (a, b) => a && b && a.trim().toLowerCase() === b.trim().toLowerCase()
 
+// Viewbox "lonMin,latMax,lonMax,latMin" (con margen) que envuelve puntos ya
+// ubicados, para SESGAR el geocoding de un nombre ambiguo hacia la región real
+// del viaje ("Williams" → Arizona, no Iowa). null si no hay puntos.
+function boundsViewbox(items, pad = 1.5) {
+  const points = (items || []).filter(located)
+  if (!points.length) return null
+  const lats = points.map(item => item.latitude)
+  const lons = points.map(item => item.longitude)
+  return `${(Math.min(...lons) - pad).toFixed(2)},${(Math.max(...lats) + pad).toFixed(2)},${(Math.max(...lons) + pad).toFixed(2)},${(Math.min(...lats) - pad).toFixed(2)}`
+}
+
 // Punto de referencia del día para buscar lugares cercanos. CLAVE para roadtrips:
 // el día puede estar en un lugar distinto al hotel (ej. paso por Valley of Fire
 // pero el hotel sigue en Las Vegas). Por eso la CIUDAD/LUGAR del día manda; el
@@ -21,9 +32,11 @@ export async function dayAnchor(day, hotels = []) {
   if (located(hotel) && samePlace(hotel.city, day.city)) {
     return { latitude:hotel.latitude, longitude:hotel.longitude, label:hotel.name }
   }
-  // 2) Ciudad/lugar del día (el autocompletado cachea sus coords exactas).
+  // 2) Ciudad/lugar del día. Se geocodifica sesgado a lo que el día/viaje ya
+  // tiene ubicado (panoramas + hoteles) para no caer en un homónimo lejano.
   try {
-    const point = await geocodeCity(day.city)
+    const viewbox = boundsViewbox([...(day.activities || []), ...(hotels || [])])
+    const point = await geocodeCity(day.city, viewbox ? { viewbox } : undefined)
     if (point) return { latitude:point.lat, longitude:point.lon, label:`el centro de ${day.city}` }
   } catch { /* seguimos con los fallbacks */ }
   // 3) Primer panorama ya ubicado del día.
