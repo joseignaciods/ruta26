@@ -205,6 +205,8 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .poi-pin{transition:transform .15s,box-shadow .15s}
 .poi-pin-wrap.active{z-index:1000}
 .poi-pin-wrap.active .poi-pin{transform:scale(1.25);box-shadow:0 6px 18px #1e104070;border-color:#ffe08a}
+.route-wp-wrap{background:transparent;border:0}.route-wp{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;color:white;border:3px solid white;box-shadow:0 3px 11px #1e104055;font-size:11px;font-weight:900;font-family:'Nunito',sans-serif}.route-wp.origin{background:#16a34a}.route-wp.dest{background:#7042ce}.route-wp.stop{width:22px;height:22px;font-size:10px;background:#0ea5a8}
+.route-info-chip{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:-4px 0 10px;padding:9px 13px;background:#f4efff;border:1px solid #e0d5f7;border-radius:14px;font-size:11px;color:#5b4b7d}.route-info-chip b{color:#6d3fd4}.route-info-chip span:not(.route-info-line){font-weight:700;padding:2px 8px;background:white;border-radius:999px}.route-info-line{width:16px;height:4px;border-radius:2px;background:#7042ce;flex:0 0 auto}
 .leaflet-tooltip.poi-tip{background:#1e1040;color:white;border:0;border-radius:8px;font-weight:800;font-size:11px;font-family:'Nunito',sans-serif;padding:4px 9px;box-shadow:0 4px 14px #1e10404d}
 
 /* "Mantenerme conectado" en el login */

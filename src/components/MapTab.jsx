@@ -2,12 +2,23 @@ import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { distanceKm, geocodeCity, geocodeQuery } from '../lib/geo.js'
+import { dayAnchor } from '../lib/planner.js'
+import { fetchRoute, formatDuration } from '../lib/routing.js'
 import { useTrips } from '../state/TripContext.jsx'
 import CategoryIcon, { categories, categoryFor, pinHtml, hotelPinHtml } from './CategoryIcon.jsx'
 
 const hasCoords = item => item.latitude != null && item.longitude != null
 const mapsUrl = item => `https://www.google.com/maps/search/?api=1&query=${item.latitude},${item.longitude}`
 const dayColors = ['#8b5cf6', '#0ea5a8', '#f59e0b', '#c44e92', '#2563eb', '#16a34a']
+
+// Marcador de un punto de la ruta del día: origen (Salida), destino (Llegada) o
+// una parada de paso numerada. Se dibuja aparte de los pines de panorama.
+const routeWaypointIcon = (kind, label) => L.divIcon({
+  className:'route-wp-wrap',
+  html:`<span class="route-wp ${kind}">${label}</span>`,
+  iconSize:[26, 26],
+  iconAnchor:[13, 13]
+})
 const clusterActivities = activities => {
   const clusters = []
   for (const activity of activities.filter(hasCoords)) {
@@ -31,6 +42,7 @@ export default function MapTab() {
   const elementRef = useRef(null)
   const mapRef = useRef(null)
   const [empty, setEmpty] = useState(false)
+  const [routeInfo, setRouteInfo] = useState(null)
   const [selectedDayId, setSelectedDayId] = useState('all')
   const [locatingId, setLocatingId] = useState(null)
   const [searchingId, setSearchingId] = useState(null)
@@ -53,6 +65,8 @@ export default function MapTab() {
     const render = async () => {
       const points = []
       const route = []
+      let routeDrawn = false
+      setRouteInfo(null)
       const visibleDays = selectedDay ? [selectedDay] : activeTrip.days
       const dayActivityCoords = selectedDay ? selectedDay.activities.filter(hasCoords) : []
 
@@ -145,6 +159,45 @@ export default function MapTab() {
         }
       }
 
+      // Ruta real de manejo del día (roadtrip): origen → paradas → destino con la
+      // geometría de OpenRouteService, en lugar de una recta entre panoramas.
+      if (selectedDay) {
+        const dayStops = activeTrip.preferences?.dayStops?.[selectedDay.id] || []
+        const routeStops = dayStops.filter(stop => stop.kind !== 'destination' && hasCoords(stop))
+        const destination = dayStops.find(stop => stop.kind === 'destination' && hasCoords(stop))
+        if (routeStops.length || destination) {
+          const origin = await dayAnchor(selectedDay, activeTrip.hotels)
+          if (!alive) return
+          const waypoints = [origin, ...routeStops, ...(destination ? [destination] : [])].filter(hasCoords)
+          if (waypoints.length >= 2) {
+            waypoints.forEach((waypoint, index) => {
+              const isOrigin = index === 0
+              const isDest = Boolean(destination) && index === waypoints.length - 1
+              const kind = isOrigin ? 'origin' : isDest ? 'dest' : 'stop'
+              const label = isOrigin ? 'A' : isDest ? 'B' : String(index)
+              const role = isOrigin ? 'Salida' : isDest ? 'Llegada' : `Parada ${index}`
+              const latLng = [waypoint.latitude, waypoint.longitude]
+              points.push(latLng)
+              L.marker(latLng, { icon:routeWaypointIcon(kind, label), zIndexOffset:400 })
+                .bindPopup(`<b>${role}</b><br>${waypoint.label || waypoint.name || ''}`)
+                .addTo(map)
+            })
+            const routeGeo = await fetchRoute(waypoints)
+            if (!alive) return
+            if (routeGeo?.geometry?.length > 1) {
+              L.polyline(routeGeo.geometry, { color:'#7042ce', weight:5, opacity:.85 }).addTo(map)
+              routeGeo.geometry.forEach(point => points.push(point))
+              routeDrawn = true
+              setRouteInfo({ distanceKm:routeGeo.distanceKm, durationMin:routeGeo.durationMin, stops:routeStops.length })
+            } else {
+              // ORS no disponible → recta punteada entre los puntos, como respaldo.
+              L.polyline(waypoints.map(waypoint => [waypoint.latitude, waypoint.longitude]), { color:'#7042ce', weight:3, dashArray:'6 6', opacity:.7 }).addTo(map)
+              routeDrawn = true
+            }
+          }
+        }
+      }
+
       const visibleHotels = selectedDay
         ? activeTrip.hotels.filter(hotel =>
             hotel.city.toLowerCase() === selectedDay.city.toLowerCase() ||
@@ -160,7 +213,7 @@ export default function MapTab() {
       }
 
       if (!alive) return
-      if (route.length > 1) {
+      if (route.length > 1 && !routeDrawn) {
         L.polyline(route, {
           color:'#8b5cf6',
           weight:3,
@@ -183,7 +236,7 @@ export default function MapTab() {
       map.remove()
       mapRef.current = null
     }
-  }, [activeTrip.days, activeTrip.hotels, isSingleCityTrip, selectedDay, selectedDayId])
+  }, [activeTrip.days, activeTrip.hotels, activeTrip.preferences?.dayStops, isSingleCityTrip, selectedDay, selectedDayId])
 
   const locate = async activity => {
     if (!selectedDay || !activity.address) return
@@ -231,6 +284,15 @@ export default function MapTab() {
       <div className="section-heading">
         <div><h2>Mapa</h2><p>{selectedDay ? `Día ${selectedDay.position} · ${selectedDay.city}` : 'Ruta general del viaje'}</p></div>
       </div>
+      {routeInfo && (routeInfo.distanceKm != null || routeInfo.durationMin != null) && (
+        <div className="route-info-chip">
+          <span className="route-info-line" />
+          <b>Ruta del día</b>
+          {routeInfo.distanceKm != null && <span>{Math.round(routeInfo.distanceKm)} km</span>}
+          {routeInfo.durationMin != null && <span>{formatDuration(routeInfo.durationMin)} en auto</span>}
+          {routeInfo.stops > 0 && <span>{routeInfo.stops} {routeInfo.stops === 1 ? 'parada de paso' : 'paradas de paso'}</span>}
+        </div>
+      )}
       <div className="map-view-selector">
         <button className={`map-overview-btn ${selectedDayId === 'all' ? 'active' : ''}`} onClick={() => setSelectedDayId('all')}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
