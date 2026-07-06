@@ -486,10 +486,11 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
         )
       })()}
 
-      {generator && (
+      {generator && createPortal(
         <Suspense fallback={null}>
           <ItineraryGenerator dayIds={generator.dayIds} onClose={() => setGenerator(null)} />
-        </Suspense>
+        </Suspense>,
+        document.body
       )}
 
       {showDay && (
