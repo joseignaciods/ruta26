@@ -14,7 +14,7 @@ const samePlace = (a, b) => a && b && a.trim().toLowerCase() === b.trim().toLowe
 // Viewbox "lonMin,latMax,lonMax,latMin" (con margen) que envuelve puntos ya
 // ubicados, para SESGAR el geocoding de un nombre ambiguo hacia la región real
 // del viaje ("Williams" → Arizona, no Iowa). null si no hay puntos.
-function boundsViewbox(items, pad = 1.5) {
+export function boundsViewbox(items, pad = 1.5) {
   const points = (items || []).filter(located)
   if (!points.length) return null
   const lats = points.map(item => item.latitude)

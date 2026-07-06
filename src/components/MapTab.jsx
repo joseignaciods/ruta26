@@ -248,7 +248,7 @@ export default function MapTab() {
       const visibleHotels = selectedDay
         ? activeTrip.hotels.filter(hotel =>
             hotel.city.toLowerCase() === selectedDay.city.toLowerCase() ||
-            (selectedDay.date && hotel.checkIn <= selectedDay.date && (!hotel.checkOut || hotel.checkOut >= selectedDay.date))
+            (selectedDay.date && hotel.checkIn && hotel.checkIn <= selectedDay.date && (!hotel.checkOut || hotel.checkOut >= selectedDay.date))
           )
         : []
       for (const hotel of visibleHotels) {

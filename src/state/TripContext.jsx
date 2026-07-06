@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { hasSupabase, supabase } from '../lib/supabase.js'
 import { localStore } from '../lib/localStore.js'
 import { geocodeQuery } from '../lib/geo.js'
-import { dayAnchor } from '../lib/planner.js'
+import { dayAnchor, boundsViewbox } from '../lib/planner.js'
 import { fetchRoute, buildRouteWithVias } from '../lib/routing.js'
 import { placeCacheKey, readPlaceCache, writePlaceCache } from '../lib/placeCache.js'
 import { useAuth } from './AuthContext.jsx'
@@ -441,7 +441,12 @@ export function TripProvider({ children }) {
         let longitude = values.longitude ?? null
         if (latitude == null && values.address) {
           try {
-            const point = await geocodeQuery([values.address, day?.city].filter(Boolean).join(', '))
+            // Sesgar el geocoding a la región del viaje (panoramas + hoteles ya
+            // ubicados) para que una dirección/homónimo no caiga en otra ciudad o
+            // país, igual que dayAnchor. Ej: "Main St" del roadtrip de Arizona.
+            const hints = [...activeTrip.days.flatMap(item => item.activities || []), ...(activeTrip.hotels || [])]
+            const viewbox = boundsViewbox(hints)
+            const point = await geocodeQuery([values.address, day?.city].filter(Boolean).join(', '), viewbox ? { viewbox } : undefined)
             if (point) { latitude = point.lat; longitude = point.lon }
           } catch { /* mejor sin coordenadas que bloquear el alta */ }
         }

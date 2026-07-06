@@ -57,7 +57,10 @@ export default function TodayTab({ onOpenAssistant }) {
     ? [...timed].reverse().find(activity => activity.time <= currentTime)?.id
     : null
   const doneCount = day.activities.filter(activity => activity.done).length
-  const hotel = activeTrip.hotels.find(item => item.city.toLowerCase() === day.city.toLowerCase() || (day.date && item.checkIn <= day.date && (!item.checkOut || item.checkOut >= day.date)))
+  // Un hotel sin fechas (checkIn '') NO debe cubrir cualquier día: '' <= fecha es
+  // siempre true, así que sin la guarda `item.checkIn &&` aparecía como el
+  // alojamiento de TODOS los días. Solo cuenta por rango de fechas si tiene checkIn.
+  const hotel = activeTrip.hotels.find(item => item.city.toLowerCase() === day.city.toLowerCase() || (day.date && item.checkIn && item.checkIn <= day.date && (!item.checkOut || item.checkOut >= day.date)))
 
   return (
     <section>

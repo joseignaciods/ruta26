@@ -427,11 +427,15 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                         <div className="activity-menu">
                           <button className="icon-btn" onClick={() => setMenuActivityId(current => current === activity.id ? null : activity.id)} aria-label="Opciones del panorama">⋯</button>
                           {menuActivityId === activity.id && (
-                            <div className="context-menu">
-                              {contextActions(day, activity).map(action => (
-                                <button key={action.label} onClick={() => { setMenuActivityId(null); onAskAssistant(action.prompt) }}>✦ {action.label}</button>
-                              ))}
-                            </div>
+                            <>
+                              {/* Backdrop transparente para cerrar el menú al tocar fuera (en móvil no hay hover ni Esc). */}
+                              <button type="button" className="context-menu-backdrop" aria-label="Cerrar menú" onClick={() => setMenuActivityId(null)} />
+                              <div className="context-menu">
+                                {contextActions(day, activity).map(action => (
+                                  <button key={action.label} onClick={() => { setMenuActivityId(null); onAskAssistant(action.prompt) }}>✦ {action.label}</button>
+                                ))}
+                              </div>
+                            </>
                           )}
                         </div>
                       )}
