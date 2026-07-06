@@ -44,12 +44,14 @@ function Hotels({ trip }) {
   const [hotelBusy, setHotelBusy] = useState(false)
   const cityTimer = useRef(null)
   const hotelTimer = useRef(null)
+  const hotelBlurTimer = useRef(null)
   // Coords de la ciudad elegida en el dropdown: sesgan la búsqueda OSM de hoteles.
   const cityAnchor = useRef(null)
 
   useEffect(() => () => {
     clearTimeout(cityTimer.current)
     clearTimeout(hotelTimer.current)
+    clearTimeout(hotelBlurTimer.current)
   }, [])
 
   const submit = async event => {
@@ -105,6 +107,7 @@ function Hotels({ trip }) {
   }
 
   const chooseHotel = hotel => {
+    clearTimeout(hotelBlurTimer.current)
     setForm(current => ({
       ...current,
       name:hotel.name,
@@ -113,6 +116,21 @@ function Hotels({ trip }) {
       longitude:hotel.longitude ?? null
     }))
     setHotelResults([])
+  }
+
+  // El nombre del hotel es libre: se puede escribir uno que no esté en las
+  // listas (Tripadvisor/OSM). Esta salida cierra el desplegable conservando el
+  // texto tal cual, sin obligar a elegir una opción ni vincular coordenadas.
+  const keepCustomHotel = () => {
+    clearTimeout(hotelBlurTimer.current)
+    setHotelResults([])
+  }
+
+  const blurHotel = () => {
+    // Cierra el desplegable al salir del campo (con delay para que el tap sobre
+    // una opción alcance a registrarse antes de que la lista desaparezca).
+    clearTimeout(hotelBlurTimer.current)
+    hotelBlurTimer.current = setTimeout(() => setHotelResults([]), 160)
   }
 
   return (
@@ -143,13 +161,22 @@ function Hotels({ trip }) {
             </div>}
           </label>
           <label className="autocomplete-field">Nombre
-            <input required autoComplete="off" disabled={!form.city.trim()} value={form.name} onChange={e => changeHotel(e.target.value)} placeholder={form.city ? 'Escribe el hotel' : 'Primero elige ciudad'} />
+            <input required autoComplete="off" disabled={!form.city.trim()} value={form.name} onChange={e => changeHotel(e.target.value)} onBlur={blurHotel} placeholder={form.city ? 'Escribe el hotel' : 'Primero elige ciudad'} />
             {(hotelBusy || hotelResults.length > 0) && <div className="autocomplete-results hotel-results">
-              {hotelBusy ? <span>Buscando hoteles...</span> : hotelResults.slice(0, 5).map(hotel => (
-                <button type="button" key={hotel.locationId || hotel.name} onClick={() => chooseHotel(hotel)}>
-                  <b>{hotel.name}</b><small>{[hotel.rating ? `★ ${hotel.rating}` : '', hotel.address].filter(Boolean).join(' · ')}</small>
-                </button>
-              ))}
+              {hotelBusy ? <span>Buscando hoteles...</span> : (
+                <>
+                  {form.name.trim().length >= 2 && (
+                    <button type="button" className="autocomplete-keep" onMouseDown={e => e.preventDefault()} onClick={keepCustomHotel}>
+                      <b>Usar “{form.name.trim()}”</b><small>Nombre personalizado, sin vincular al mapa</small>
+                    </button>
+                  )}
+                  {hotelResults.slice(0, 5).map(hotel => (
+                    <button type="button" key={hotel.locationId || hotel.name} onMouseDown={e => e.preventDefault()} onClick={() => chooseHotel(hotel)}>
+                      <b>{hotel.name}</b><small>{[hotel.rating ? `★ ${hotel.rating}` : '', hotel.address].filter(Boolean).join(' · ')}</small>
+                    </button>
+                  ))}
+                </>
+              )}
             </div>}
           </label>
         </div>
