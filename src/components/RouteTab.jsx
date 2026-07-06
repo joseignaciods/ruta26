@@ -5,6 +5,7 @@ import CategoryIcon, { categories, categoryFor } from './CategoryIcon.jsx'
 import { inferCategory, intentForCategory } from '../lib/intents.js'
 import { addDays, dayHotel, dayLoad, formatDate, formatKm, formatMinutes, suggestNextTime, travelEstimate } from '../lib/planner.js'
 import { searchSpots, rememberPlace } from '../lib/geo.js'
+import { fetchRoute } from '../lib/routing.js'
 
 // Lazy para que Leaflet no entre al bundle inicial (igual que MapTab).
 const PlacePicker = lazy(() => import('./PlacePicker.jsx'))
@@ -57,6 +58,35 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
   const [destSpotsBusy, setDestSpotsBusy] = useState(false)
   const destSpotTimer = useRef(null)
   const composerRef = useRef(null)
+  // Tiempos de traslado REALES (ORS) por día: { [dayId]: { byFromId, travelMinutes } }.
+  const [dayLegs, setDayLegs] = useState({})
+
+  // Trae el tiempo de manejo real por tramo de cada día (una llamada por día con
+  // ≥2 panoramas ubicados; cacheada en localStorage). Si ORS no está disponible,
+  // el render cae al heurístico de travelEstimate.
+  useEffect(() => {
+    let alive = true
+    const run = async () => {
+      const next = {}
+      for (const day of activeTrip.days) {
+        const located = day.activities.filter(activity => activity.latitude != null && activity.longitude != null)
+        if (located.length < 2) continue
+        const geo = await fetchRoute(located)
+        if (!alive) return
+        if (!geo?.legs?.length) continue
+        const byFromId = {}
+        let travelMinutes = 0
+        geo.legs.forEach((leg, index) => {
+          if (located[index]) byFromId[located[index].id] = { km:leg.distanceKm, minutes:leg.durationMin }
+          travelMinutes += leg.durationMin || 0
+        })
+        next[day.id] = { byFromId, travelMinutes:Math.round(travelMinutes) }
+      }
+      if (alive) setDayLegs(next)
+    }
+    run()
+    return () => { alive = false }
+  }, [activeTrip.days])
 
   // El editor de panorama es un formulario inline al final del día; al abrirlo
   // (editar o "a mano") lo traemos a la vista para que no parezca que "no pasa
@@ -346,12 +376,16 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
               </div>
               {day.activities.length > 0 && (() => {
                 const load = dayLoad(day.activities)
+                // Con ruta real de ORS usamos su tiempo de traslado; si no, el heurístico.
+                const travelMinutes = dayLegs[day.id] ? dayLegs[day.id].travelMinutes : load.travelMinutes
+                const totalMinutes = load.activeMinutes + travelMinutes
+                const level = totalMinutes >= 600 ? 'over' : totalMinutes >= 480 ? 'full' : totalMinutes >= 180 ? 'good' : 'light'
                 return (
-                  <div className={`day-load level-${load.level}`}>
-                    <b>≈ {formatMinutes(load.totalMinutes)}</b>
-                    <span>{load.count} parada{load.count !== 1 ? 's' : ''}{load.travelMinutes > 0 ? ` · ${formatMinutes(load.travelMinutes)} en traslados` : ''}</span>
-                    {load.level === 'full' && <em>día completo</em>}
-                    {load.level === 'over' && <em>día muy cargado</em>}
+                  <div className={`day-load level-${level}`}>
+                    <b>≈ {formatMinutes(totalMinutes)}</b>
+                    <span>{load.count} parada{load.count !== 1 ? 's' : ''}{travelMinutes > 0 ? ` · ${formatMinutes(travelMinutes)} en traslados` : ''}</span>
+                    {level === 'full' && <em>día completo</em>}
+                    {level === 'over' && <em>día muy cargado</em>}
                   </div>
                 )
               })()}
@@ -359,7 +393,13 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                 {day.activities.map((activity, activityIndex) => {
                   const category = categoryFor(activity.category)
                   const nextActivity = day.activities[activityIndex + 1]
-                  const hop = nextActivity ? travelEstimate(activity, nextActivity) : null
+                  // Tramo real de ORS (si el siguiente panorama también está ubicado);
+                  // si no, el heurístico de travelEstimate como respaldo.
+                  const orsLeg = (dayLegs[day.id]?.byFromId || {})[activity.id]
+                  const nextLocated = nextActivity && nextActivity.latitude != null && nextActivity.longitude != null
+                  const hop = (orsLeg && nextLocated)
+                    ? { km:orsLeg.km, minutes:Math.round(orsLeg.minutes), mode:'ride' }
+                    : (nextActivity ? travelEstimate(activity, nextActivity) : null)
                   return (
                     <Fragment key={activity.id}>
                     <div className={`activity-line category-${category.id}`}>

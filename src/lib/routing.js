@@ -10,7 +10,7 @@ export async function fetchRoute(waypoints = []) {
     .filter(point => point && point.latitude != null && point.longitude != null)
     .map(point => [Number(point.longitude), Number(point.latitude)])
   if (coordinates.length < 2) return null
-  const cacheKey = 'ruta26_route_v1_' + coordinates.map(pair => pair.map(value => value.toFixed(4)).join(',')).join('|')
+  const cacheKey = 'ruta26_route_v2_' + coordinates.map(pair => pair.map(value => value.toFixed(4)).join(',')).join('|')
   try {
     const cached = localStorage.getItem(cacheKey)
     if (cached) return JSON.parse(cached)
@@ -19,7 +19,7 @@ export async function fetchRoute(waypoints = []) {
   try {
     const { data, error } = await supabase.functions.invoke('route-directions', { body:{ coordinates } })
     if (error || !data || data.error || !Array.isArray(data.geometry) || data.geometry.length < 2) return null
-    const result = { geometry:data.geometry, distanceKm:data.distanceKm, durationMin:data.durationMin }
+    const result = { geometry:data.geometry, distanceKm:data.distanceKm, durationMin:data.durationMin, legs:Array.isArray(data.legs) ? data.legs : [] }
     try { localStorage.setItem(cacheKey, JSON.stringify(result)) } catch { /* storage lleno */ }
     return result
   } catch {

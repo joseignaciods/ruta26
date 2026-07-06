@@ -32,11 +32,17 @@ async function orsDirections(coordinates: number[][], key: string) {
   const feature = data?.features?.[0]
   const line: number[][] = feature?.geometry?.coordinates || []
   const summary = feature?.properties?.summary || {}
+  // Un "segment" por tramo entre waypoints consecutivos (para tiempos por tramo).
+  const segments: { distance?: number, duration?: number }[] = feature?.properties?.segments || []
   return {
     // GeoJSON entrega [lon, lat]; Leaflet usa [lat, lon].
     geometry: line.map(point => [point[1], point[0]]),
     distanceKm: summary.distance != null ? summary.distance / 1000 : null,
-    durationMin: summary.duration != null ? summary.duration / 60 : null
+    durationMin: summary.duration != null ? summary.duration / 60 : null,
+    legs: segments.map(segment => ({
+      distanceKm: (segment.distance || 0) / 1000,
+      durationMin: (segment.duration || 0) / 60
+    }))
   }
 }
 

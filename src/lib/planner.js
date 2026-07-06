@@ -109,14 +109,21 @@ export function durationToMinutes(text) {
 export const activityMinutes = activity =>
   durationToMinutes(activity?.duration) || CATEGORY_MINUTES[activity?.category] || 90
 
-// Traslado estimado entre dos paradas ubicadas: a pie si están cerca, si no en
-// transporte urbano. Devuelve null si alguna no tiene coordenadas.
+// Traslado estimado entre dos paradas ubicadas. Respaldo cuando no hay ruta real
+// de ORS. A pie si están muy cerca; si no, en auto con una velocidad media que
+// escala con la distancia (los hops cortos son urbanos y lentos; los tramos
+// largos van por carretera/autopista y son mucho más rápidos), sobre la distancia
+// por CARRETERA estimada (las rutas rodean, no son líneas rectas). Devuelve null
+// si alguna parada no tiene coordenadas.
 export function travelEstimate(from, to) {
   if (!located(from) || !located(to)) return null
-  const km = distanceKm([from.latitude, from.longitude], [to.latitude, to.longitude])
-  const walk = km <= 1.4
-  const minutes = Math.max(walk ? 3 : 6, Math.round((km / (walk ? 4.6 : 24)) * 60))
-  return { km, minutes, mode: walk ? 'walk' : 'ride' }
+  const straightKm = distanceKm([from.latitude, from.longitude], [to.latitude, to.longitude])
+  if (straightKm <= 1.4) {
+    return { km: straightKm, minutes: Math.max(3, Math.round((straightKm / 4.6) * 60)), mode: 'walk' }
+  }
+  const roadKm = straightKm * 1.3
+  const speed = straightKm < 5 ? 25 : straightKm < 25 ? 55 : straightKm < 80 ? 78 : 85
+  return { km: roadKm, minutes: Math.max(6, Math.round((roadKm / speed) * 60)), mode: 'ride' }
 }
 
 // Carga del día: tiempo en panoramas + traslados entre paradas consecutivas,
