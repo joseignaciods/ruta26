@@ -595,10 +595,21 @@ export function TripProvider({ children }) {
           if (entry.latitude != null && entry.longitude != null) exclude.coords.push([entry.latitude, entry.longitude])
         })
         try {
+          // Ruta del día: origen (ancla) → paradas de paso → destino. Si hay más
+          // de un punto, la edge function busca a lo largo del trayecto y ordena el
+          // día siguiendo la ruta.
+          const dayStops = activeTrip.preferences?.dayStops?.[dayId] || []
+          const routeStops = dayStops.filter(item => item.kind !== 'destination' && item.latitude != null && item.longitude != null)
+          const dest = dayStops.find(item => item.kind === 'destination' && item.latitude != null && item.longitude != null)
+          const route = [
+            { name:anchor.label || day.city, latitude:anchor.latitude, longitude:anchor.longitude, role:'origin' },
+            ...routeStops.map(item => ({ name:item.name, latitude:item.latitude, longitude:item.longitude, role:'stop' })),
+            ...(dest ? [{ name:dest.name, latitude:dest.latitude, longitude:dest.longitude, role:'destination' }] : [])
+          ]
           const { data, error } = await supabase.functions.invoke('generate-itinerary', {
             body:{
               tripId:activeTrip.id,
-              day:{ dayId:day.id, date:day.date || '', city:day.city, anchor:{ latitude:anchor.latitude, longitude:anchor.longitude, label:anchor.label } },
+              day:{ dayId:day.id, date:day.date || '', city:day.city, anchor:{ latitude:anchor.latitude, longitude:anchor.longitude, label:anchor.label }, route },
               preferences:{ dayTypes, pace, freeText, avoidUsed, cuisines, cultureTypes },
               exclude, language:'es', currency:activeTrip.currency
             }

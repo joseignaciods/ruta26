@@ -281,3 +281,10 @@ textarea{width:100%;padding:12px 14px;border:1px solid #e7e0f5;border-radius:13p
 .mpp-actions .icon-btn{padding:0;width:30px;height:30px;background:#f5f2fa;color:#8b789e;flex:0 0 auto}
 
 .autocomplete-field .autocomplete-clear{position:absolute;right:9px;top:32px;width:26px;height:26px;border-radius:50%;background:#f1ecff;color:#8b789e;font-size:11px;display:grid;place-items:center}
+
+.day-hotels{display:flex;flex-direction:column;gap:5px;margin:0 0 10px}
+.day-hotel{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#5f5e6b;background:#f4efff;padding:6px 11px;border-radius:10px;align-self:flex-start;font-weight:600}
+.day-hotel b{font-weight:800;color:#3a3550}
+.day-hotel.out{background:#fff0e4;color:#8a5a2f}
+.day-hotel.out b{color:#7a4a1f}
+.day-hotel a{margin-left:2px;color:#347dc1;font-weight:800;text-decoration:none}

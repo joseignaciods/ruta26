@@ -23,6 +23,19 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
 
   // Destino guardado de un día (parada especial kind:'destination').
   const dayDestinationOf = dayId => (activeTrip.preferences?.dayStops?.[dayId] || []).find(item => item.kind === 'destination') || null
+
+  // Hoteles del día, derivados de las reservas del módulo Viaje por fecha:
+  // "out" = te vas hoy (check-out), "night" = dónde duermes (check-in de hoy o
+  // la estadía que cubre esta noche). Si no hay fecha, cae al match por ciudad.
+  const dayHotelsInfo = day => {
+    const hotels = activeTrip.hotels || []
+    const out = day.date ? hotels.find(hotel => hotel.checkOut === day.date) : null
+    const inn = day.date ? hotels.find(hotel => hotel.checkIn === day.date) : null
+    const stay = day.date
+      ? hotels.find(hotel => hotel.checkIn && hotel.checkIn <= day.date && (!hotel.checkOut || hotel.checkOut > day.date))
+      : dayHotel(day, hotels)
+    return { out, night: inn || stay }
+  }
   const [showDay, setShowDay] = useState(false)
   const [dayForm, setDayForm] = useState({ city:'', title:'', date:'', destName:'', destPlace:null })
   const [editingDayId, setEditingDayId] = useState(null)
@@ -311,6 +324,18 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
 
           {expandedId === day.id && (
             <div className="day-body">
+              {(() => {
+                const { out, night } = dayHotelsInfo(day)
+                if (!out && !night) return null
+                return (
+                  <div className="day-hotels">
+                    {out && <span className="day-hotel out">🏨 Sales de <b>{out.name}</b></span>}
+                    {night && night.id !== out?.id && (
+                      <span className="day-hotel">🏨 Noche en <b>{night.name}</b>{night.url && <a href={night.url} target="_blank" rel="noreferrer" aria-label="Abrir reserva">↗</a>}</span>
+                    )}
+                  </div>
+                )
+              })()}
               <div className="day-tools">
                 <button onClick={() => openDayForm(day)}>Editar día</button>
                 <button onClick={() => setOrderingDayId(current => current === day.id ? null : day.id)}>

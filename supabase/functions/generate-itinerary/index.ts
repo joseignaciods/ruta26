@@ -60,6 +60,14 @@ Deno.serve(async request => {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
       return json({ error: 'No se pudo ubicar el lugar del día en el mapa. Elige una ciudad o lugar de las sugerencias.' }, 400)
     }
+    // Puntos de la ruta del día: origen → paradas de paso → destino. Sin ruta
+    // (o un solo punto) se comporta igual que antes: todo alrededor del ancla.
+    // deno-lint-ignore no-explicit-any
+    const routePoints = (Array.isArray(day.route) ? day.route : [])
+      .map((p: any) => ({ name: String(p?.name || ''), lat: Number(p?.latitude), lon: Number(p?.longitude), role: String(p?.role || 'stop') }))
+      .filter((p: { lat: number, lon: number }) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+    if (!routePoints.length) routePoints.push({ name: String(anchor.label || day.city || ''), lat, lon, role: 'origin' })
+    const isRoute = routePoints.length > 1
     const prefs = body.preferences || {}
     const exclude = body.exclude || {}
     const language = body.language || 'es'
@@ -84,10 +92,22 @@ Deno.serve(async request => {
     // --- GATHER: atracciones gratis (Wikipedia) + comida (Tripadvisor, con cuota) ---
     // deno-lint-ignore no-explicit-any
     let attractions: any[] = []
-    try {
-      attractions = await searchWikiPlaces({ latitude: lat, longitude: lon, radiusKm: 8, limit: 14, language })
-    } catch (error) {
-      console.warn('Wikipedia gather failed', error instanceof Error ? error.message : error)
+    const seenAttr = new Set<string>()
+    for (let i = 0; i < routePoints.length; i++) {
+      const point = routePoints[i]
+      try {
+        const found = await searchWikiPlaces({ latitude: point.lat, longitude: point.lon, radiusKm: isRoute ? 6 : 8, limit: isRoute ? 8 : 14, language })
+        for (const place of found) {
+          const key = String(place.locationId || place.name)
+          if (seenAttr.has(key)) continue
+          seenAttr.add(key)
+          place._leg = i
+          place._near = point.name
+          attractions.push(place)
+        }
+      } catch (error) {
+        console.warn('Wikipedia gather failed', error instanceof Error ? error.message : error)
+      }
     }
 
     // deno-lint-ignore no-explicit-any
@@ -131,6 +151,30 @@ Deno.serve(async request => {
       }
     }
 
+    // Etiqueta la comida ya reunida (cerca del origen) y, si es ruta, suma
+    // opciones cerca del destino para la cena/llegada.
+    restaurants.forEach(place => { place._leg = 0; place._near = routePoints[0].name })
+    if (isRoute && wantsFood) {
+      const destPoint = routePoints[routePoints.length - 1]
+      try {
+        let destFood: any[] = []
+        if (hasTripadvisor() && settings.taEnabled) {
+          destFood = await nearbyPlaces({ latitude: destPoint.lat, longitude: destPoint.lon, category: 'restaurants', radiusKm: 6, limit: 3, language, currency, userId: user.id })
+          meta.taConsumed += destFood.length
+        }
+        if (!destFood.length) destFood = await searchOsmFood({ latitude: destPoint.lat, longitude: destPoint.lon, radiusKm: 6, limit: 3 })
+        const seenDestFood = new Set(restaurants.map(r => String(r.locationId)))
+        for (const place of destFood) {
+          if (place.locationId && seenDestFood.has(String(place.locationId))) continue
+          place._leg = routePoints.length - 1
+          place._near = destPoint.name
+          restaurants.push(place)
+        }
+      } catch (error) {
+        console.warn('Dest food gather failed', error instanceof Error ? error.message : error)
+      }
+    }
+
     // --- FILTER: anti-repetición en código (no se confía al modelo) ---
     const exIds = new Set((exclude.ids || []).map((id: unknown) => String(id)))
     const exNames = new Set((exclude.names || []).map(norm))
@@ -160,7 +204,9 @@ Deno.serve(async request => {
         lon: place.longitude,
         distKm: Number(distanceKm(lat, lon, Number(place.latitude), Number(place.longitude)).toFixed(2)),
         blurb: trim(place.description, 110),
-        hasPhoto: Boolean(place.imageUrl)
+        hasPhoto: Boolean(place.imageUrl),
+        leg: place._leg ?? 0,
+        near: place._near || ''
       }
     })
     const foodPayload = restaurants.map(place => {
@@ -173,7 +219,9 @@ Deno.serve(async request => {
         distKm: Number(distanceKm(lat, lon, Number(place.latitude), Number(place.longitude)).toFixed(2)),
         rating: place.rating,
         reviewCount: place.reviewCount,
-        priceLevel: place.priceLevel
+        priceLevel: place.priceLevel,
+        leg: place._leg ?? 0,
+        near: place._near || ''
       }
     })
 
@@ -197,6 +245,7 @@ Deno.serve(async request => {
       'Elige ÚNICAMENTE lugares de la lista de candidatos provista, usando su "id" exacto. NUNCA inventes lugares, ids, coordenadas ni datos.',
       `Apunta a ${pace} paradas en total, acorde al ritmo pedido.`,
       'Optimiza geográficamente: agrupa paradas por sector/barrio cercano y ordénalas para minimizar desplazamientos (usa lat/lon y distKm).',
+      isRoute ? `DÍA DE TRASLADO: empiezas en "${routePoints[0].name}" y terminas en "${routePoints[routePoints.length - 1].name}"${routePoints.length > 2 ? `, pasando por: ${routePoints.slice(1, -1).map(p => p.name).join(', ')}` : ''}. Ordena el día SIGUIENDO LA RUTA con el campo "leg" de cada candidato (0 = origen, mayor = más cerca del destino): primero lo del origen (mañana), luego las paradas intermedias en orden de "leg", y termina en el destino (tarde/noche). Almuerzo hacia el medio y cena en el destino. No vuelvas atrás en la ruta.` : '',
       'Intercala comidas en horarios realistas usando los candidatos de comida: almuerzo ~13:30 y cena ~20:30 (desayuno ~09:00 solo si el ritmo lo permite).',
       'Asigna a cada parada una hora de inicio (HH:MM, 24h) y una duración en minutos realista, en orden cronológico.',
       'Para cada parada incluye "whyPicked": una frase breve (máx 80 caracteres) que explique por qué vale la pena, sin copiar reseñas.',
@@ -212,6 +261,7 @@ Deno.serve(async request => {
       city: day.city,
       date: day.date,
       anchor: { lat, lon, label: anchor.label || day.city },
+      route: isRoute ? routePoints.map((p: { name: string, role: string }) => ({ name: p.name, role: p.role })) : undefined,
       candidates: { attractions: attractionPayload, restaurants: foodPayload }
     }
 
