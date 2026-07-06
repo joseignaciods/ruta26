@@ -178,6 +178,33 @@ export function TripProvider({ children }) {
       try { return await fn() } catch (error) { toast(error.message || 'Error inesperado'); return null }
     }
 
+    // Persistencia de las paradas/destino de UN día sin pisar los otros. Antes
+    // cada método reescribía TODO preferences desde el estado del cliente, que el
+    // refresh en tiempo real podía dejar atrasado → al corregir varios días, el
+    // último guardado clobbereaba las correcciones anteriores (se revertían al
+    // recargar). Ahora leemos lo MÁS reciente de la BD y mergeamos solo la clave
+    // de este día antes de escribir.
+    const persistDayStops = (dayId, updater) => run(async () => {
+      if (!activeTrip) return
+      const tripId = activeTrip.id
+      const apply = list => updater(list || [])
+      updateActive(trip => {
+        const prefs = trip.preferences || {}
+        return { ...trip, preferences: { ...prefs, dayStops: { ...(prefs.dayStops || {}), [dayId]: apply(prefs.dayStops?.[dayId]) } } }
+      })
+      if (!hasSupabase) {
+        const current = localStore.trips(user.id).find(item => item.id === tripId)
+        const prefs = current?.preferences || {}
+        localStore.updateTrip(tripId, { preferences: { ...prefs, dayStops: { ...(prefs.dayStops || {}), [dayId]: apply(prefs.dayStops?.[dayId]) } } })
+        return
+      }
+      const { data: fresh, error: readError } = await supabase.from('trips').select('preferences').eq('id', tripId).single()
+      if (readError) { await refresh(); throw readError }
+      const prefs = fresh?.preferences || {}
+      const { error } = await supabase.from('trips').update({ preferences: { ...prefs, dayStops: { ...(prefs.dayStops || {}), [dayId]: apply(prefs.dayStops?.[dayId]) } } }).eq('id', tripId)
+      if (error) { await refresh(); throw error }
+    })
+
     return ({
       trips, activeTrip, activeTripId, loading, offline, setActiveTripId, refresh,
 
@@ -364,54 +391,21 @@ export function TripProvider({ children }) {
       // Paradas de un día (otras ciudades/pueblos/parques de paso). Se guardan
       // en trip.preferences.dayStops[dayId] para no requerir migración; cada
       // parada lleva coords para anclar la búsqueda de panoramas ahí.
-      addDayStop: (dayId, stop) => run(async () => {
-        if (!activeTrip || !stop?.name) return
-        const prefs = activeTrip.preferences || {}
-        const dayStops = { ...(prefs.dayStops || {}) }
-        const existing = dayStops[dayId] || []
-        if (existing.some(item => item.name === stop.name)) return
-        dayStops[dayId] = [...existing, { name:stop.name, latitude:stop.latitude ?? null, longitude:stop.longitude ?? null, label:stop.label || stop.name }]
-        const preferences = { ...prefs, dayStops }
-        updateActive(trip => ({ ...trip, preferences }))
-        if (!hasSupabase) localStore.updateTrip(activeTrip.id, { preferences })
-        else {
-          const { error } = await supabase.from('trips').update({ preferences }).eq('id', activeTrip.id)
-          if (error) { await refresh(); throw error }
-        }
-      }),
+      addDayStop: (dayId, stop) => persistDayStops(dayId, list =>
+        (stop?.name && !list.some(item => item.name === stop.name))
+          ? [...list, { name:stop.name, latitude:stop.latitude ?? null, longitude:stop.longitude ?? null, label:stop.label || stop.name }]
+          : list),
 
-      removeDayStop: (dayId, stopName) => run(async () => {
-        if (!activeTrip) return
-        const prefs = activeTrip.preferences || {}
-        const dayStops = { ...(prefs.dayStops || {}) }
-        dayStops[dayId] = (dayStops[dayId] || []).filter(item => item.name !== stopName)
-        const preferences = { ...prefs, dayStops }
-        updateActive(trip => ({ ...trip, preferences }))
-        if (!hasSupabase) localStore.updateTrip(activeTrip.id, { preferences })
-        else {
-          const { error } = await supabase.from('trips').update({ preferences }).eq('id', activeTrip.id)
-          if (error) { await refresh(); throw error }
-        }
-      }),
+      removeDayStop: (dayId, stopName) => persistDayStops(dayId, list => list.filter(item => item.name !== stopName)),
 
       // Destino del día (dónde termina/duerme). Se guarda como una parada
       // especial kind:'destination' en dayStops para reusar todo lo de paradas.
       // place=null lo quita (día base sin traslado).
-      setDayDestination: (dayId, place) => run(async () => {
-        if (!activeTrip) return
-        const prefs = activeTrip.preferences || {}
-        const dayStops = { ...(prefs.dayStops || {}) }
-        const withoutDest = (dayStops[dayId] || []).filter(item => item.kind !== 'destination')
-        dayStops[dayId] = place?.name
+      setDayDestination: (dayId, place) => persistDayStops(dayId, list => {
+        const withoutDest = list.filter(item => item.kind !== 'destination')
+        return place?.name
           ? [...withoutDest, { name:place.name, latitude:place.latitude ?? null, longitude:place.longitude ?? null, label:place.label || place.name, kind:'destination' }]
           : withoutDest
-        const preferences = { ...prefs, dayStops }
-        updateActive(trip => ({ ...trip, preferences }))
-        if (!hasSupabase) localStore.updateTrip(activeTrip.id, { preferences })
-        else {
-          const { error } = await supabase.from('trips').update({ preferences }).eq('id', activeTrip.id)
-          if (error) { await refresh(); throw error }
-        }
       }),
 
       reorderDays: (firstId, secondId) => run(async () => {
