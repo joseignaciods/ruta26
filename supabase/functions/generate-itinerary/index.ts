@@ -240,12 +240,17 @@ Deno.serve(async request => {
     const dayTypes = ((prefs.dayTypes || []) as string[]).map(t => dayTypeLabel[t] || t).filter(Boolean)
     const cultureTypes = ((prefs.cultureTypes || []) as string[]).filter(Boolean)
 
+    // Puntos intermedios CON NOMBRE (paradas de paso reales). Los puntos "via"
+    // muestreados de la carretera van sin nombre: sirven para buscar panoramas a
+    // lo largo del trayecto, pero no se listan en la descripción de la ruta.
+    const namedVias = routePoints.slice(1, -1).map(p => p.name).filter(Boolean)
+
     const system = [
       'Eres un planificador de viajes experto. Armas el itinerario de UN solo día, realista y bien paceado. Respondes en español.',
       'Elige ÚNICAMENTE lugares de la lista de candidatos provista, usando su "id" exacto. NUNCA inventes lugares, ids, coordenadas ni datos.',
       `Apunta a ${pace} paradas en total, acorde al ritmo pedido.`,
       'Optimiza geográficamente: agrupa paradas por sector/barrio cercano y ordénalas para minimizar desplazamientos (usa lat/lon y distKm).',
-      isRoute ? `DÍA DE TRASLADO: empiezas en "${routePoints[0].name}" y terminas en "${routePoints[routePoints.length - 1].name}"${routePoints.length > 2 ? `, pasando por: ${routePoints.slice(1, -1).map(p => p.name).join(', ')}` : ''}. Ordena el día SIGUIENDO LA RUTA con el campo "leg" de cada candidato (0 = origen, mayor = más cerca del destino): primero lo del origen (mañana), luego las paradas intermedias en orden de "leg", y termina en el destino (tarde/noche). Almuerzo hacia el medio y cena en el destino. No vuelvas atrás en la ruta.` : '',
+      isRoute ? `DÍA DE TRASLADO: empiezas en "${routePoints[0].name}" y terminas en "${routePoints[routePoints.length - 1].name}"${namedVias.length ? `, pasando por: ${namedVias.join(', ')}` : ''}. Hay candidatos repartidos a lo largo de la carretera (campo "leg": 0 = origen, mayor = más cerca del destino). Ordena el día SIGUIENDO LA RUTA por "leg": primero lo del origen (mañana), luego lo de los tramos intermedios en orden de "leg" (paradas de paso en la carretera), y termina en el destino (tarde/noche). Almuerzo hacia el medio y cena en el destino. No vuelvas atrás en la ruta.` : '',
       'Intercala comidas en horarios realistas usando los candidatos de comida: almuerzo ~13:30 y cena ~20:30 (desayuno ~09:00 solo si el ritmo lo permite).',
       'Asigna a cada parada una hora de inicio (HH:MM, 24h) y una duración en minutos realista, en orden cronológico.',
       'Para cada parada incluye "whyPicked": una frase breve (máx 80 caracteres) que explique por qué vale la pena, sin copiar reseñas.',
@@ -261,7 +266,7 @@ Deno.serve(async request => {
       city: day.city,
       date: day.date,
       anchor: { lat, lon, label: anchor.label || day.city },
-      route: isRoute ? routePoints.map((p: { name: string, role: string }) => ({ name: p.name, role: p.role })) : undefined,
+      route: isRoute ? routePoints.filter((p: { name: string }) => p.name).map((p: { name: string, role: string }) => ({ name: p.name, role: p.role })) : undefined,
       candidates: { attractions: attractionPayload, restaurants: foodPayload }
     }
 

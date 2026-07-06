@@ -3,6 +3,7 @@ import { hasSupabase, supabase } from '../lib/supabase.js'
 import { localStore } from '../lib/localStore.js'
 import { geocodeQuery } from '../lib/geo.js'
 import { dayAnchor } from '../lib/planner.js'
+import { fetchRoute, buildRouteWithVias } from '../lib/routing.js'
 import { placeCacheKey, readPlaceCache, writePlaceCache } from '../lib/placeCache.js'
 import { useAuth } from './AuthContext.jsx'
 import { useToast } from './ToastContext.jsx'
@@ -600,10 +601,21 @@ export function TripProvider({ children }) {
             ...routeStops.map(item => ({ name:item.name, latitude:item.latitude, longitude:item.longitude, role:'stop' })),
             ...(dest ? [{ name:dest.name, latitude:dest.latitude, longitude:dest.longitude, role:'destination' }] : [])
           ]
+          // Si es una ruta (>=2 puntos), muestreamos la carretera REAL (ORS) y
+          // agregamos puntos intermedios para que el generador busque panoramas de
+          // paso a lo largo del trayecto, no solo en origen/destino. Si ORS no
+          // está disponible se usa la ruta simple igual.
+          let routeToSend = route
+          if (route.length >= 2) {
+            try {
+              const geo = await fetchRoute(route)
+              if (geo?.geometry?.length > 1) routeToSend = buildRouteWithVias(geo.geometry, route)
+            } catch { /* sin ORS: seguimos con la ruta simple */ }
+          }
           const { data, error } = await supabase.functions.invoke('generate-itinerary', {
             body:{
               tripId:activeTrip.id,
-              day:{ dayId:day.id, date:day.date || '', city:day.city, anchor:{ latitude:anchor.latitude, longitude:anchor.longitude, label:anchor.label }, route },
+              day:{ dayId:day.id, date:day.date || '', city:day.city, anchor:{ latitude:anchor.latitude, longitude:anchor.longitude, label:anchor.label }, route:routeToSend },
               preferences:{ dayTypes, pace, freeText, avoidUsed, cuisines, cultureTypes },
               exclude, language:'es', currency:activeTrip.currency
             }
