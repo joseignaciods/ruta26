@@ -149,6 +149,67 @@ export async function searchSpots(query) {
   return results
 }
 
+// Búsqueda de POIs/lugares EXACTOS en OpenStreetMap (photon), sesgada a un punto.
+// Sirve para encontrar sub-lugares que TripAdvisor no indexa (ej. "Desert View
+// Watchtower" dentro del Gran Cañón). Devuelve objetos con forma de "place" para
+// el picker (coords + dirección), sin rating/foto, con locationId "osm-…".
+const OSM_CATEGORY = { tourism:'entertainment', historic:'culture', leisure:'nature', natural:'nature', amenity:'food' }
+export async function searchOsmPois(query, { latitude, longitude, cityText = '' } = {}) {
+  const clean = query?.trim()
+  if (!clean || clean.length < 2) return []
+  const hasGeo = Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude))
+  // Con coords sesgamos por lat/lon; sin coords agregamos la ciudad al texto para
+  // desambiguar (ej. buscar un hotel por nombre sin que caiga en otro país).
+  const q = hasGeo ? clean : [clean, cityText].filter(Boolean).join(' ')
+  const geoKey = hasGeo ? `${Number(latitude).toFixed(1)},${Number(longitude).toFixed(1)}` : (cityText || '').trim().toLowerCase()
+  const cacheKey = `ruta26_osm_pois_v1_${clean.toLowerCase()}_${geoKey}`
+  const cached = localStorage.getItem(cacheKey)
+  if (cached) return JSON.parse(cached)
+  const params = new URLSearchParams({ limit:'10', q })
+  if (hasGeo) { params.set('lat', String(latitude)); params.set('lon', String(longitude)) }
+  const response = await fetch(`https://photon.komoot.io/api/?${params}`)
+  if (!response.ok) throw new Error('No se pudieron buscar lugares')
+  const data = await response.json()
+  const seen = new Set()
+  const results = (data.features || [])
+    .filter(feature => feature.properties?.name && feature.properties?.osm_key !== 'highway')
+    .map(feature => {
+      const p = feature.properties || {}
+      const [lon, lat] = feature.geometry?.coordinates || []
+      const street = [p.housenumber, p.street].filter(Boolean).join(' ')
+      const address = [street, p.city || p.county, p.state, p.country].filter(Boolean).join(', ')
+      return {
+        locationId:`osm-${p.osm_type || ''}-${p.osm_id || p.name}`,
+        name:p.name,
+        category:OSM_CATEGORY[p.osm_key] || 'entertainment',
+        address:address || [p.state, p.country].filter(Boolean).join(', '),
+        latitude:Number(lat),
+        longitude:Number(lon),
+        provider:'openstreetmap',
+        rating:null,
+        reviewCount:null,
+        priceLevel:'',
+        tripadvisorUrl:''
+      }
+    })
+    .filter(place => {
+      if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) return false
+      const dedupe = `${place.name.toLowerCase()}|${place.latitude.toFixed(3)}`
+      if (seen.has(dedupe)) return false
+      seen.add(dedupe)
+      return true
+    })
+    .slice(0, 6)
+  localStorage.setItem(cacheKey, JSON.stringify(results))
+  return results
+}
+
+// URL de Google Maps para un panorama con coordenadas (para "ir/cómo llegar").
+export const googleMapsUrl = place =>
+  place && place.latitude != null && place.longitude != null
+    ? `https://www.google.com/maps/search/?api=1&query=${place.latitude}%2C${place.longitude}`
+    : null
+
 export async function getWeather(lat, lon, date) {
   if (!date) return null
   const params = new URLSearchParams({

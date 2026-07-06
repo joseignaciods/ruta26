@@ -3,7 +3,7 @@ import { useAuth } from '../state/AuthContext.jsx'
 import { useTrips } from '../state/TripContext.jsx'
 import { formatDate } from '../lib/planner.js'
 import { settleUp } from '../lib/settle.js'
-import { searchCities } from '../lib/geo.js'
+import { searchCities, searchOsmPois } from '../lib/geo.js'
 import { computeBalances, resolveSplit } from '../lib/computeBalances.js'
 import SplitEditor from './SplitEditor.jsx'
 
@@ -44,6 +44,8 @@ function Hotels({ trip }) {
   const [hotelBusy, setHotelBusy] = useState(false)
   const cityTimer = useRef(null)
   const hotelTimer = useRef(null)
+  // Coords de la ciudad elegida en el dropdown: sesgan la búsqueda OSM de hoteles.
+  const cityAnchor = useRef(null)
 
   useEffect(() => () => {
     clearTimeout(cityTimer.current)
@@ -65,6 +67,7 @@ function Hotels({ trip }) {
 
   const changeCity = value => {
     setForm(current => ({ ...current, city:value, name:'', address:'', latitude:null, longitude:null }))
+    cityAnchor.current = null
     setHotelResults([])
     clearTimeout(cityTimer.current)
     if (value.trim().length < 2) { setCityResults([]); return }
@@ -77,6 +80,7 @@ function Hotels({ trip }) {
 
   const chooseCity = city => {
     setForm(current => ({ ...current, city:city.name, name:'', address:'', latitude:null, longitude:null }))
+    cityAnchor.current = (city.latitude != null && city.longitude != null) ? { latitude:city.latitude, longitude:city.longitude } : null
     setCityResults([])
   }
 
@@ -86,8 +90,16 @@ function Hotels({ trip }) {
     if (form.city.trim().length < 2 || value.trim().length < 2) { setHotelResults([]); return }
     hotelTimer.current = setTimeout(async () => {
       setHotelBusy(true)
-      const result = await searchPlaces(value, form.city, 'hotels')
-      setHotelResults(result?.places || [])
+      // TripAdvisor primero; luego sumamos hoteles de OpenStreetMap (deduplicando
+      // por nombre) para cubrir los que TripAdvisor no indexa.
+      const [result, osmExtra] = await Promise.all([
+        searchPlaces(value, form.city, 'hotels'),
+        searchOsmPois(value, { cityText:form.city, ...(cityAnchor.current || {}) }).catch(() => [])
+      ])
+      const base = result?.places || []
+      const seenNames = new Set(base.map(place => (place.name || '').trim().toLowerCase()))
+      const merged = [...base, ...osmExtra.filter(place => !seenNames.has((place.name || '').trim().toLowerCase()))]
+      setHotelResults(merged)
       setHotelBusy(false)
     }, 400)
   }

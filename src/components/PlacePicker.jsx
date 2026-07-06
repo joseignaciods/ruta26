@@ -6,7 +6,7 @@ import { useAuth } from '../state/AuthContext.jsx'
 import CategoryIcon, { categoryFor, pinHtml } from './CategoryIcon.jsx'
 import { inferCategory, intentFor, intents } from '../lib/intents.js'
 import { dayAnchor, dayLoad, formatMinutes, hasMeal, suggestMealTime, suggestNextTime } from '../lib/planner.js'
-import { distanceKm, searchSpots, rememberPlace, reverseSpot } from '../lib/geo.js'
+import { distanceKm, searchSpots, rememberPlace, reverseSpot, searchOsmPois, googleMapsUrl } from '../lib/geo.js'
 import { resolveSplit } from '../lib/computeBalances.js'
 import MultiSelect from './MultiSelect.jsx'
 import { PRICE_LEVELS, RATING_STEPS, priceLevelCount } from '../lib/placeFilters.js'
@@ -282,21 +282,34 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
       label = isSeed || !userText ? `${intent.suggestTitle} en ${activeLocationName}` : `Resultados para “${userText}”`
     }
     if (seq !== requestSeq.current) return
+    // Sumar lugares EXACTOS de OpenStreetMap cuando el usuario escribe: aparecen
+    // sub-lugares/POIs que TripAdvisor no indexa (ej. "Desert View Watchtower").
+    let osmExtra = []
+    if (userText && !result?.limitReached) {
+      const osmAnchor = area || effectiveAnchor || {}
+      try { osmExtra = await searchOsmPois(userText, osmAnchor) } catch { osmExtra = [] }
+      if (seq !== requestSeq.current) return
+    }
     setBusy(false)
     if (result?.limitReached) {
       setPlaces([])
       setProvider('')
       setResultsLabel('')
       setLimitMsg(result.error || 'Alcanzaste tu cuota mensual de búsquedas de lugares (Tripadvisor). Se renueva el día 1 del próximo mes.')
-    } else if (result) {
-      setPlaces(result.places || [])
-      setProvider(result.provider || '')
-      setResultsLabel(label)
     } else {
-      setPlaces([])
-      setProvider('')
-      setFailed(true)
-      setResultsLabel('')
+      const base = result?.places || []
+      const seenNames = new Set(base.map(place => (place.name || '').trim().toLowerCase()))
+      const merged = [...base, ...osmExtra.filter(place => !seenNames.has((place.name || '').trim().toLowerCase()))]
+      if (merged.length) {
+        setPlaces(merged)
+        setProvider(base.length ? (result.provider || '') : 'openstreetmap')
+        setResultsLabel(label)
+        setFailed(false)
+      } else if (result) {
+        setPlaces([]); setProvider(''); setResultsLabel(''); setFailed(false)
+      } else {
+        setPlaces([]); setProvider(''); setResultsLabel(''); setFailed(true)
+      }
     }
   }
 
@@ -636,7 +649,12 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
                     {[place.ranking, place.reviewCount ? `${place.reviewCount} opiniones` : '', distance != null ? `a ${fmtDistance(distance)}` : ''].filter(Boolean).join(' · ')}
                   </p>
                 )}
-                {place.address && <p className="chat-place-address">{place.address}</p>}
+                {(place.address || googleMapsUrl(place)) && (
+                  <p className="chat-place-address">
+                    {place.address}
+                    {googleMapsUrl(place) && <a className="gmaps-link" href={googleMapsUrl(place)} target="_blank" rel="noreferrer">{place.address ? ' · ' : ''}Google Maps ↗</a>}
+                  </p>
+                )}
                 <div className="chat-place-actions">
                   {(place.tripadvisorUrl || place.url) && <a href={place.tripadvisorUrl || place.url} target="_blank" rel="noreferrer">Ver detalles ↗</a>}
                   <button type="button" className="picker-tune-btn" onClick={() => openConfirm(place)}>Ajustar</button>
@@ -791,7 +809,12 @@ export default function PlacePicker({ day, initialIntent = 'top', initialView = 
                       <small className="pmc-cat">{categoryFor(inferCategory(place, intent.category)).label}</small>
                       <h5>{place.name}</h5>
                       {meta && <p className="pmc-meta">{meta}</p>}
-                      {place.address && <p className="pmc-address">{place.address}</p>}
+                      {(place.address || googleMapsUrl(place)) && (
+                        <p className="pmc-address">
+                          {place.address}
+                          {googleMapsUrl(place) && <a className="gmaps-link" href={googleMapsUrl(place)} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()}>{place.address ? ' · ' : ''}Google Maps ↗</a>}
+                        </p>
+                      )}
                       <div className="pmc-actions">
                         {detailUrl && <a href={detailUrl} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()}>Ver detalles ↗</a>}
                         <button type="button" className="pmc-tune" onClick={event => { event.stopPropagation(); openConfirm(place) }}>Ajustar</button>
