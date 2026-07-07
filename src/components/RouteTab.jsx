@@ -400,6 +400,13 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                 {day.activities.map((activity, activityIndex) => {
                   const category = categoryFor(activity.category)
                   const nextActivity = day.activities[activityIndex + 1]
+                  // Costo desde el gasto LIGADO (única fuente de verdad, = presupuesto);
+                  // si no hay gasto registrado, el priceLabel informativo. Antes se
+                  // mostraba activity.expenseAmount, que se desincronizaba del gasto.
+                  const linkedExpense = (activeTrip.expenses || []).find(item => item.activityId === activity.id)
+                  const costLabel = linkedExpense
+                    ? `💰 ${linkedExpense.amount} ${linkedExpense.currency || activeTrip.currency || ''}`.trim()
+                    : activity.priceLabel
                   // Tramo real de ORS (si el siguiente panorama también está ubicado);
                   // si no, el heurístico de travelEstimate como respaldo.
                   const orsLeg = (dayLegs[day.id]?.byFromId || {})[activity.id]
@@ -418,7 +425,7 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                       <button type="button" className="activity-copy" onClick={() => editActivity(day, activity)}>
                         <span>{[activity.time || 'Sin hora', activity.duration, category.label].filter(Boolean).join(' · ')}</span>
                         <h4>{activity.name}</h4>
-                        {(activity.address || activity.priceLabel || activity.expenseAmount > 0) && <small>{[activity.address, activity.expenseAmount > 0 ? `💰 ${activity.expenseAmount} ${activity.expenseCurrency}` : activity.priceLabel].filter(Boolean).join(' · ')}</small>}
+                        {(activity.address || costLabel) && <small>{[activity.address, costLabel].filter(Boolean).join(' · ')}</small>}
                       </button>
                       {orderingDayId === day.id && (
                         <div className="order-controls">

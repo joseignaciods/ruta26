@@ -826,6 +826,9 @@ export function TripProvider({ children }) {
       deleteActivity: (dayId, activityId) => run(async () => {
         if (!activeTrip) return
         const removed = activeTrip.days.find(day => day.id === dayId)?.activities.find(item => item.id === activityId)
+        // Gastos ligados al panorama: en Supabase la FK los deja con activity_id
+        // NULL al borrar, así que al deshacer (con id NUEVO) hay que re-ligarlos.
+        const linkedExpenseIds = (activeTrip.expenses || []).filter(item => item.activityId === activityId).map(item => item.id)
         updateActive(trip => ({ ...trip, days:trip.days.map(day => day.id === dayId ? { ...day, activities:day.activities.filter(item => item.id !== activityId) } : day) }))
         if (!hasSupabase) localStore.deleteActivity(activeTrip.id, dayId, activityId)
         else {
@@ -835,14 +838,20 @@ export function TripProvider({ children }) {
         toast('Eliminado', { type:'success', action:{ label:'Deshacer', onClick:async () => {
           if (!removed) return
           if (!hasSupabase) localStore.restoreActivity(activeTrip.id, dayId, removed)
-          else await supabase.from('activities').insert({
-            trip_id:activeTrip.id, day_id:dayId, position:removed.position, name:removed.name,
-            time:removed.time || null, duration:removed.duration || '', category:removed.category,
-            address:removed.address, latitude:removed.latitude, longitude:removed.longitude,
-            price_label:removed.priceLabel, done:removed.done,
-            tripadvisor_location_id:removed.tripadvisorLocationId || null,
-            image_url:removed.imageUrl || null
-          })
+          else {
+            const { data:restored } = await supabase.from('activities').insert({
+              trip_id:activeTrip.id, day_id:dayId, position:removed.position, name:removed.name,
+              time:removed.time || null, duration:removed.duration || '', category:removed.category,
+              address:removed.address, latitude:removed.latitude, longitude:removed.longitude,
+              price_label:removed.priceLabel, done:removed.done,
+              tripadvisor_location_id:removed.tripadvisorLocationId || null,
+              image_url:removed.imageUrl || null
+            }).select('id').single()
+            // Re-ligar los gastos al panorama recreado para que no queden huérfanos.
+            if (restored && linkedExpenseIds.length) {
+              await supabase.from('expenses').update({ activity_id:restored.id }).in('id', linkedExpenseIds)
+            }
+          }
           await refresh()
         } } })
       }),
@@ -915,6 +924,7 @@ export function TripProvider({ children }) {
       deleteHotel: hotelId => run(async () => {
         if (!activeTrip) return
         const removed = activeTrip.hotels.find(item => item.id === hotelId)
+        const linkedExpenseIds = (activeTrip.expenses || []).filter(item => item.hotelId === hotelId).map(item => item.id)
         updateActive(trip => ({ ...trip, hotels:trip.hotels.filter(item => item.id !== hotelId) }))
         if (!hasSupabase) localStore.deleteHotel(activeTrip.id, hotelId)
         else {
@@ -924,7 +934,19 @@ export function TripProvider({ children }) {
         toast('Eliminado', { type:'success', action:{ label:'Deshacer', onClick:async () => {
           if (!removed) return
           if (!hasSupabase) localStore.restoreHotel(activeTrip.id, removed)
-          else await supabase.from('hotels').insert({ trip_id:activeTrip.id, city:removed.city, name:removed.name, address:removed.address, check_in:removed.checkIn || null, check_out:removed.checkOut || null, cost:removed.cost, cost_currency:removed.costCurrency, url:removed.url || null })
+          else {
+            // Restaurar CON coordenadas (si no, el hotel desaparece del mapa y deja
+            // de servir de ancla) y re-ligar el gasto al hotel recreado.
+            const { data:restored } = await supabase.from('hotels').insert({
+              trip_id:activeTrip.id, city:removed.city, name:removed.name, address:removed.address,
+              check_in:removed.checkIn || null, check_out:removed.checkOut || null,
+              latitude:removed.latitude ?? null, longitude:removed.longitude ?? null,
+              cost:removed.cost, cost_currency:removed.costCurrency, url:removed.url || null
+            }).select('id').single()
+            if (restored && linkedExpenseIds.length) {
+              await supabase.from('expenses').update({ hotel_id:restored.id }).in('id', linkedExpenseIds)
+            }
+          }
           await refresh()
         } } })
       }),
