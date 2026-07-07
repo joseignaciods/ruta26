@@ -57,7 +57,6 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
   const [destSpots, setDestSpots] = useState([])
   const [destSpotsBusy, setDestSpotsBusy] = useState(false)
   const destSpotTimer = useRef(null)
-  const composerRef = useRef(null)
   // Tiempos de traslado REALES (ORS) por día: { [dayId]: { byFromId, travelMinutes } }.
   const [dayLegs, setDayLegs] = useState({})
 
@@ -88,12 +87,6 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
     return () => { alive = false }
   }, [activeTrip.days])
 
-  // El editor de panorama es un formulario inline al final del día; al abrirlo
-  // (editar o "a mano") lo traemos a la vista para que no parezca que "no pasa
-  // nada" cuando queda fuera de pantalla en móvil.
-  useEffect(() => {
-    if (composerDayId) composerRef.current?.scrollIntoView({ behavior:'smooth', block:'center' })
-  }, [composerDayId, editingActivityId])
 
   // Autocompletado del campo "Ciudad o lugar" del día: sugiere lugares reales
   // del mapa (ciudades, pueblos, parques, paradas) para no escribir mal el
@@ -459,65 +452,22 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                 })}
               </div>
 
-              {composerDayId !== day.id && (
-                <div className="route-actions">
-                  <button className="add-panorama-btn" onClick={() => openPicker(day)}>
-                    <span>+</span><div><b>Agregar panorama</b><small>Lugares reales en {day.city}</small></div>
-                  </button>
-                  <button className="gen-day-btn" onClick={() => openGenerator([day.id])}>
-                    <span>✦</span><div><b>Generar itinerario</b><small>La IA arma el día en {day.city}</small></div>
-                  </button>
-                  <div className="route-secondary">
-                    <button onClick={() => openPicker(day, 'top', 'map')}>Explorar mapa</button>
-                    {dayHotel(day, activeTrip.hotels) && (
-                      <button onClick={() => addCheckin(day)}>Check-in hotel</button>
-                    )}
-                    <button onClick={() => openComposer(day, 'transport', 'Traslado')}>Traslado</button>
-                    <button onClick={() => openComposer(day)}>A mano</button>
-                  </div>
+              <div className="route-actions">
+                <button className="add-panorama-btn" onClick={() => openPicker(day)}>
+                  <span>+</span><div><b>Agregar panorama</b><small>Lugares reales en {day.city}</small></div>
+                </button>
+                <button className="gen-day-btn" onClick={() => openGenerator([day.id])}>
+                  <span>✦</span><div><b>Generar itinerario</b><small>La IA arma el día en {day.city}</small></div>
+                </button>
+                <div className="route-secondary">
+                  <button onClick={() => openPicker(day, 'top', 'map')}>Explorar mapa</button>
+                  {dayHotel(day, activeTrip.hotels) && (
+                    <button onClick={() => addCheckin(day)}>Check-in hotel</button>
+                  )}
+                  <button onClick={() => openComposer(day, 'transport', 'Traslado')}>Traslado</button>
+                  <button onClick={() => openComposer(day)}>A mano</button>
                 </div>
-              )}
-
-              {composerDayId === day.id && (
-                <form ref={composerRef} className="activity-composer" onSubmit={event => createActivity(event, day.id)}>
-                  <div className="composer-heading">
-                    <div><span>{editingActivityId ? 'EDITAR PANORAMA' : 'NUEVO PANORAMA'}</span><h4>¿Qué quieres hacer?</h4></div>
-                    <button type="button" className="icon-btn" onClick={closeComposer}>✕</button>
-                  </div>
-                  <div className="category-picker">
-                    {categories.map(category => (
-                      <button type="button" key={category.id} className={actForm.category === category.id ? 'active' : ''} onClick={() => setActForm({ ...actForm, category:category.id })}>
-                        <CategoryIcon name={category.id} /><span>{category.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <label className="composer-main-field">Nombre del panorama
-                    <input autoFocus required placeholder={`Ej. ${categoryFor(actForm.category).hint}`} value={actForm.name} onChange={e => onNameChange(day, e.target.value)} />
-                    {acOpen && (
-                      <div className="ac-dropdown">
-                        {acResults.map(place => (
-                          <button type="button" key={place.locationId || place.name} onClick={() => pickSuggestion(place)}>
-                            <b>{place.name}</b>
-                            <small>{[place.address, place.rating ? `★ ${place.rating}` : ''].filter(Boolean).join(' · ')}</small>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </label>
-                  <div className="composer-grid">
-                    <label>Hora<input type="time" value={actForm.time} onChange={e => setActForm({ ...actForm, time:e.target.value })} /></label>
-                    <label>Duración<input placeholder="Ej. 2h" value={actForm.duration} onChange={e => setActForm({ ...actForm, duration:e.target.value })} /></label>
-                  </div>
-                  <label>Precio estimado<input placeholder="Ej. 20 EUR" value={actForm.priceLabel} onChange={e => setActForm({ ...actForm, priceLabel:e.target.value })} /></label>
-                  <label>Ubicación <span className="optional-label">opcional</span>
-                    <input placeholder="Dirección o barrio" value={actForm.address} onChange={e => setActForm({ ...actForm, address:e.target.value })} />
-                  </label>
-                  <div className="composer-footer">
-                    <button type="button" className="inspiration-link" onClick={() => openPicker(day, intentForCategory(actForm.category))}>Buscar lugares reales</button>
-                    <button className="primary-btn compact">{editingActivityId ? 'Guardar cambios' : 'Agregar a la ruta'}</button>
-                  </div>
-                </form>
-              )}
+              </div>
 
               <button className="danger-link" onClick={() => removeDay(day)}>Eliminar día</button>
             </div>
@@ -550,6 +500,56 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
         </Suspense>,
         document.body
       )}
+
+      {/* Editor de panorama como bottom-sheet (portaleado a body para no quedar
+          recortado por el overflow del workspace ni mover el scroll de la lista). */}
+      {composerDayId && (() => {
+        const composerDay = activeTrip.days.find(day => day.id === composerDayId)
+        if (!composerDay) return null
+        return createPortal(
+          <div className="composer-sheet-backdrop" onClick={closeComposer}>
+            <form className="composer-sheet" onClick={event => event.stopPropagation()} onSubmit={event => createActivity(event, composerDay.id)}>
+              <div className="composer-heading">
+                <div><span>{editingActivityId ? 'EDITAR PANORAMA' : 'NUEVO PANORAMA'}</span><h4>Día {composerDay.position} · {composerDay.city}</h4></div>
+                <button type="button" className="icon-btn" onClick={closeComposer} aria-label="Cerrar">✕</button>
+              </div>
+              <div className="category-picker">
+                {categories.map(category => (
+                  <button type="button" key={category.id} className={actForm.category === category.id ? 'active' : ''} onClick={() => setActForm({ ...actForm, category:category.id })}>
+                    <CategoryIcon name={category.id} /><span>{category.label}</span>
+                  </button>
+                ))}
+              </div>
+              <label className="composer-main-field">Nombre del panorama
+                <input required placeholder={`Ej. ${categoryFor(actForm.category).hint}`} value={actForm.name} onChange={e => onNameChange(composerDay, e.target.value)} />
+                {acOpen && (
+                  <div className="ac-dropdown">
+                    {acResults.map(place => (
+                      <button type="button" key={place.locationId || place.name} onClick={() => pickSuggestion(place)}>
+                        <b>{place.name}</b>
+                        <small>{[place.address, place.rating ? `★ ${place.rating}` : ''].filter(Boolean).join(' · ')}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </label>
+              <div className="composer-grid">
+                <label>Hora<input type="time" value={actForm.time} onChange={e => setActForm({ ...actForm, time:e.target.value })} /></label>
+                <label>Duración<input placeholder="Ej. 2h" value={actForm.duration} onChange={e => setActForm({ ...actForm, duration:e.target.value })} /></label>
+              </div>
+              <label>Precio estimado<input placeholder="Ej. 20 EUR" value={actForm.priceLabel} onChange={e => setActForm({ ...actForm, priceLabel:e.target.value })} /></label>
+              <label>Ubicación <span className="optional-label">opcional</span>
+                <input placeholder="Dirección o barrio" value={actForm.address} onChange={e => setActForm({ ...actForm, address:e.target.value })} />
+              </label>
+              <div className="composer-footer">
+                <button type="button" className="inspiration-link" onClick={() => openPicker(composerDay, intentForCategory(actForm.category))}>Buscar lugares reales</button>
+                <button className="primary-btn compact">{editingActivityId ? 'Guardar cambios' : 'Agregar a la ruta'}</button>
+              </div>
+            </form>
+          </div>,
+          document.body
+        )
+      })()}
 
       {showDay && (
         <div className="modal-backdrop" onClick={() => setShowDay(false)}>
