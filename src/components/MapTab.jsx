@@ -81,6 +81,10 @@ export default function MapTab() {
   const { activeTrip, updateActivity, searchPlaces } = useTrips()
   const elementRef = useRef(null)
   const mapRef = useRef(null)
+  const layerRef = useRef(null)       // capa de marcadores/rutas (se intercambia)
+  const renderSeqRef = useRef(0)      // guarda para descartar redibujos viejos
+  const fitSigRef = useRef('')        // último encuadre aplicado (para preservar zoom)
+  const lastPointsRef = useRef([])    // puntos vigentes (para el botón recentrar)
   const [empty, setEmpty] = useState(false)
   const [routeInfo, setRouteInfo] = useState(null)
   const [selectedDayId, setSelectedDayId] = useState('all')
@@ -93,16 +97,33 @@ export default function MapTab() {
   const tripCities = new Set(activeTrip.days.map(day => day.city?.trim().toLowerCase()).filter(Boolean))
   const isSingleCityTrip = tripCities.size === 1
 
+  // El mapa Leaflet se crea UNA sola vez y persiste. Antes se destruía y recreaba
+  // en cada cambio de día o sync de realtime (flash + tiles recargando + zoom
+  // perdido); ahora solo se intercambian los marcadores en una capa (ver abajo).
   useEffect(() => {
     if (!elementRef.current) return
-    let alive = true
     const map = L.map(elementRef.current)
     mapRef.current = map
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution:'&copy; OpenStreetMap contributors'
     }).addTo(map)
+    map.setView([20, 0], 2)
+    // El contenedor puede montar con tamaño provisional; recalcular al pintar.
+    const sizer = setTimeout(() => map.invalidateSize(), 60)
+    return () => { clearTimeout(sizer); map.remove(); mapRef.current = null; layerRef.current = null }
+  }, [])
 
-    const render = async () => {
+  // Redibuja marcadores/rutas en una capa NUEVA y la intercambia por la vigente
+  // (doble buffer: sin parpadeo). Preserva el zoom/paneo del usuario salvo que
+  // cambie el contenido (otro día u otro conjunto de puntos).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const seq = ++renderSeqRef.current
+    const alive = () => seq === renderSeqRef.current
+
+    const draw = async () => {
+      const group = L.layerGroup()
       const points = []
       const route = []
       let routeDrawn = false
@@ -117,29 +138,16 @@ export default function MapTab() {
           const located = day.activities.filter(hasCoords)
           points.push(...located.map(activity => [activity.latitude, activity.longitude]))
           located.forEach(activity => {
-            const dot = L.divIcon({
-              className:'overview-poi-dot',
-              html:`<i style="--day-color:${color}"></i>`,
-              iconSize:[12, 12],
-              iconAnchor:[6, 6]
-            })
-            L.marker([activity.latitude, activity.longitude], { icon:dot })
-              .bindTooltip(activity.name, { direction:'top' })
-              .addTo(map)
+            const dot = L.divIcon({ className:'overview-poi-dot', html:`<i style="--day-color:${color}"></i>`, iconSize:[12, 12], iconAnchor:[6, 6] })
+            L.marker([activity.latitude, activity.longitude], { icon:dot }).bindTooltip(activity.name, { direction:'top' }).addTo(group)
           })
-
           clusterActivities(day.activities).forEach(cluster => {
-            const icon = L.divIcon({
-              className:'overview-cluster-marker',
-              html:`<span style="--day-color:${color}">D${day.position}<b>${cluster.activities.length}</b></span>`,
-              iconSize:[52, 30],
-              iconAnchor:[26, 15]
-            })
+            const icon = L.divIcon({ className:'overview-cluster-marker', html:`<span style="--day-color:${color}">D${day.position}<b>${cluster.activities.length}</b></span>`, iconSize:[52, 30], iconAnchor:[26, 15] })
             const names = cluster.activities.map(activity => activity.name).join('<br>')
             L.marker(cluster.center, { icon, zIndexOffset:500 })
               .bindPopup(`<b>Día ${day.position} · ${cluster.activities.length} ${cluster.activities.length === 1 ? 'lugar' : 'lugares'}</b><br>${names}`)
               .on('click', () => setSelectedDayId(day.id))
-              .addTo(map)
+              .addTo(group)
           })
         })
       }
@@ -148,29 +156,26 @@ export default function MapTab() {
         const cityGroups = []
         for (const day of activeTrip.days) {
           const key = day.city?.trim().toLowerCase()
-          let group = cityGroups.find(item => item.key === key)
-          if (!group) {
-            group = { key, city:day.city, days:[] }
-            cityGroups.push(group)
-          }
-          group.days.push(day)
+          let cg = cityGroups.find(item => item.key === key)
+          if (!cg) { cg = { key, city:day.city, days:[] }; cityGroups.push(cg) }
+          cg.days.push(day)
         }
-        for (const group of cityGroups) {
+        for (const cg of cityGroups) {
           try {
             // Coords exactas que ya tenemos (panoramas/destino/hotel) antes de
             // geocodificar el nombre; si toca geocodificar, sesgado a la región.
-            const known = group.days
-              .map(day => knownDayPoint(day, activeTrip.preferences?.dayStops?.[day.id], activeTrip.hotels))
-              .find(Boolean)
-            const point = known ? { lat:known[0], lon:known[1] } : await geocodeCity(group.city, { viewbox })
-            if (!alive || !point) continue
+            const known = cg.days.map(day => knownDayPoint(day, activeTrip.preferences?.dayStops?.[day.id], activeTrip.hotels)).find(Boolean)
+            const point = known ? { lat:known[0], lon:known[1] } : await geocodeCity(cg.city, { viewbox })
+            if (!alive() || !point) continue
             const latLng = [point.lat, point.lon]
             points.push(latLng)
             route.push(latLng)
-            const dayLabel = group.days.length === 1 ? `D${group.days[0].position}` : `${group.days.length}d`
+            const dayLabel = cg.days.length === 1 ? `D${cg.days[0].position}` : `${cg.days.length}d`
             const icon = L.divIcon({ className:'day-map-icon', html:`<span>${dayLabel}</span>`, iconSize:[34, 34], iconAnchor:[17, 17] })
-            const days = group.days.map(day => `Día ${day.position}: ${day.title}`).join('<br>')
-            L.marker(latLng, { icon }).bindPopup(`<b>${group.city}</b><br>${days}`).addTo(map)
+            const daysHtml = cg.days.map(day => `Día ${day.position}: ${day.title}`).join('<br>')
+            const marker = L.marker(latLng, { icon }).bindPopup(`<b>${cg.city}</b><br>${daysHtml}`).addTo(group)
+            // Tocar una ciudad de un solo día salta directo a ese día.
+            if (cg.days.length === 1) marker.on('click', () => setSelectedDayId(cg.days[0].id))
           } catch {
             // Una ciudad sin resultado no impide mostrar el resto del viaje.
           }
@@ -179,11 +184,11 @@ export default function MapTab() {
         try {
           const known = knownDayPoint(selectedDay, activeTrip.preferences?.dayStops?.[selectedDay.id], activeTrip.hotels)
           const point = known ? { lat:known[0], lon:known[1] } : await geocodeCity(selectedDay.city, { viewbox })
-          if (alive && point) {
+          if (alive() && point) {
             const latLng = [point.lat, point.lon]
             points.push(latLng)
             const icon = L.divIcon({ className:'day-map-icon', html:`<span>${selectedDay.position}</span>`, iconSize:[34, 34], iconAnchor:[17, 17] })
-            L.marker(latLng, { icon }).bindPopup(`<b>${selectedDay.title}</b><br>${selectedDay.city}`).addTo(map)
+            L.marker(latLng, { icon }).bindPopup(`<b>${selectedDay.title}</b><br>${selectedDay.city}`).addTo(group)
           }
         } catch {
           // Una ciudad sin resultado no impide mostrar el resto del viaje.
@@ -196,12 +201,12 @@ export default function MapTab() {
             if (!hasCoords(activity)) continue
             const latLng = [activity.latitude, activity.longitude]
             points.push(latLng)
-            if (selectedDay) route.push(latLng)
+            route.push(latLng)
             const category = categoryFor(activity.category)
             const icon = L.divIcon({ className:'poi-pin-wrap', html:pinHtml(category.id, activityIndex + 1), iconSize:[32, 32], iconAnchor:[16, 16] })
             L.marker(latLng, { icon })
               .bindPopup(`<b>${activityIndex + 1}. ${activity.name}</b><br>${[activity.time, category.label].filter(Boolean).join(' · ')}${activity.address ? `<br>${activity.address}` : ''}<br><a href="${mapsUrl(activity)}" target="_blank" rel="noreferrer">Cómo llegar ↗</a>`)
-              .addTo(map)
+              .addTo(group)
           }
         }
       }
@@ -214,7 +219,7 @@ export default function MapTab() {
         const destination = dayStops.find(stop => stop.kind === 'destination' && hasCoords(stop))
         if (routeStops.length || destination) {
           const origin = await dayAnchor(selectedDay, activeTrip.hotels)
-          if (!alive) return
+          if (!alive()) return
           const waypoints = [origin, ...routeStops, ...(destination ? [destination] : [])].filter(hasCoords)
           if (waypoints.length >= 2) {
             waypoints.forEach((waypoint, index) => {
@@ -227,18 +232,18 @@ export default function MapTab() {
               points.push(latLng)
               L.marker(latLng, { icon:routeWaypointIcon(kind, label), zIndexOffset:400 })
                 .bindPopup(`<b>${role}</b><br>${waypoint.label || waypoint.name || ''}`)
-                .addTo(map)
+                .addTo(group)
             })
             const routeGeo = await fetchRoute(waypoints)
-            if (!alive) return
+            if (!alive()) return
             if (routeGeo?.geometry?.length > 1) {
-              L.polyline(routeGeo.geometry, { color:'#7042ce', weight:5, opacity:.85 }).addTo(map)
+              L.polyline(routeGeo.geometry, { color:'#7042ce', weight:5, opacity:.85 }).addTo(group)
               routeGeo.geometry.forEach(point => points.push(point))
               routeDrawn = true
               setRouteInfo({ distanceKm:routeGeo.distanceKm, durationMin:routeGeo.durationMin, stops:routeStops.length })
             } else {
               // ORS no disponible → recta punteada entre los puntos, como respaldo.
-              L.polyline(waypoints.map(waypoint => [waypoint.latitude, waypoint.longitude]), { color:'#7042ce', weight:3, dashArray:'6 6', opacity:.7 }).addTo(map)
+              L.polyline(waypoints.map(waypoint => [waypoint.latitude, waypoint.longitude]), { color:'#7042ce', weight:3, dashArray:'6 6', opacity:.7 }).addTo(group)
               routeDrawn = true
             }
           }
@@ -256,33 +261,35 @@ export default function MapTab() {
         const latLng = [hotel.latitude, hotel.longitude]
         points.push(latLng)
         const icon = L.divIcon({ className:'poi-pin-wrap', html:hotelPinHtml(), iconSize:[32, 32], iconAnchor:[16, 16] })
-        L.marker(latLng, { icon }).bindPopup(`<b>${hotel.name}</b><br>${hotel.address || hotel.city}<br><a href="${mapsUrl(hotel)}" target="_blank" rel="noreferrer">Cómo llegar ↗</a>`).addTo(map)
+        L.marker(latLng, { icon }).bindPopup(`<b>${hotel.name}</b><br>${hotel.address || hotel.city}<br><a href="${mapsUrl(hotel)}" target="_blank" rel="noreferrer">Cómo llegar ↗</a>`).addTo(group)
       }
 
-      if (!alive) return
       if (route.length > 1 && !routeDrawn) {
-        L.polyline(route, {
-          color:'#8b5cf6',
-          weight:3,
-          dashArray:selectedDay ? undefined : '7 7',
-          opacity:.8
-        }).addTo(map)
+        L.polyline(route, { color:'#8b5cf6', weight:3, dashArray:selectedDay ? undefined : '7 7', opacity:.8 }).addTo(group)
       }
+
+      if (!alive()) return
+      // Intercambiar la capa vieja por la nueva (sin recargar el mapa base).
+      if (layerRef.current) layerRef.current.remove()
+      group.addTo(map)
+      layerRef.current = group
+      lastPointsRef.current = points
+
       if (points.length) {
-        map.fitBounds(points, { padding:[28, 28], maxZoom:selectedDay || isSingleCityTrip ? 15 : 13 })
         setEmpty(false)
+        // Re-encuadrar SOLO si cambió el contenido; si es el mismo, conservar el
+        // zoom/paneo que el usuario haya hecho a mano.
+        const sig = selectedDayId + '|' + points.map(point => `${point[0].toFixed(3)},${point[1].toFixed(3)}`).join(';')
+        if (sig !== fitSigRef.current) {
+          fitSigRef.current = sig
+          map.fitBounds(points, { padding:[28, 28], maxZoom:selectedDay || isSingleCityTrip ? 15 : 13 })
+        }
       } else {
-        map.setView([-33.45, -70.66], 3)
+        fitSigRef.current = ''
         setEmpty(true)
       }
     }
-    render()
-
-    return () => {
-      alive = false
-      map.remove()
-      mapRef.current = null
-    }
+    draw()
   }, [activeTrip, isSingleCityTrip, selectedDay, selectedDayId])
 
   const locate = async activity => {
@@ -319,6 +326,19 @@ export default function MapTab() {
     setSearchingId(null)
     setLocationQuery('')
     setLocationResults([])
+  }
+
+  // Navegación de días desde el propio mapa (sin subir a las tabs).
+  const dayIndex = selectedDay ? activeTrip.days.findIndex(day => day.id === selectedDay.id) : -1
+  const goToDay = delta => {
+    const target = activeTrip.days[dayIndex + delta]
+    if (target) setSelectedDayId(target.id)
+  }
+  const recenter = () => {
+    const map = mapRef.current
+    if (map && lastPointsRef.current.length) {
+      map.fitBounds(lastPointsRef.current, { padding:[28, 28], maxZoom:selectedDay || isSingleCityTrip ? 15 : 13 })
+    }
   }
 
   const unlocated = selectedDay ? selectedDay.activities.filter(activity => !hasCoords(activity)) : []
@@ -365,7 +385,19 @@ export default function MapTab() {
           ))}
         </div>
       </div>
-      <div ref={elementRef} className="map-container" />
+      <div className="map-canvas">
+        <div ref={elementRef} className="map-container" />
+        {selectedDay && activeTrip.days.length > 1 && (
+          <div className="map-day-flip">
+            <button type="button" onClick={() => goToDay(-1)} disabled={dayIndex <= 0} aria-label="Día anterior">‹</button>
+            <span>Día {selectedDay.position}</span>
+            <button type="button" onClick={() => goToDay(1)} disabled={dayIndex >= activeTrip.days.length - 1} aria-label="Día siguiente">›</button>
+          </div>
+        )}
+        <button type="button" className="map-fab" onClick={recenter} aria-label="Centrar el mapa">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" /><path d="M12 1v4M12 19v4M1 12h4M19 12h4" /></svg>
+        </button>
+      </div>
       {legendCategories.length > 0 && (
         <div className="map-legend">
           {legendCategories.map(category => (
