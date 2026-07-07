@@ -371,12 +371,22 @@ export default function RouteTab({ onAskAssistant, onPickerChange }) {
                 )
               })()}
               <div className="day-tools">
-                <button onClick={() => openDayForm(day)}>Editar día</button>
-                <button onClick={() => setOrderingDayId(current => current === day.id ? null : day.id)}>
-                  {orderingDayId === day.id ? 'Listo' : 'Ordenar'}
+                <button type="button" className="day-tool" onClick={() => openDayForm(day)}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                  <span>Editar</span>
                 </button>
-                <button onClick={() => moveDay(dayIndex, -1)} disabled={dayIndex === 0}>↑ Día</button>
-                <button onClick={() => moveDay(dayIndex, 1)} disabled={dayIndex === activeTrip.days.length - 1}>↓ Día</button>
+                <button type="button" className={`day-tool ${orderingDayId === day.id ? 'active' : ''}`} onClick={() => setOrderingDayId(current => current === day.id ? null : day.id)}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M4 6v.01M4 12v.01M4 18v.01" /></svg>
+                  <span>{orderingDayId === day.id ? 'Listo' : 'Ordenar'}</span>
+                </button>
+                <button type="button" className="day-tool" onClick={() => moveDay(dayIndex, -1)} disabled={dayIndex === 0} aria-label="Subir el día en la ruta">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6" /></svg>
+                  <span>Subir</span>
+                </button>
+                <button type="button" className="day-tool" onClick={() => moveDay(dayIndex, 1)} disabled={dayIndex === activeTrip.days.length - 1} aria-label="Bajar el día en la ruta">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6" /></svg>
+                  <span>Bajar</span>
+                </button>
               </div>
               {day.activities.length > 0 && (() => {
                 const load = dayLoad(day.activities)
