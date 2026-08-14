@@ -361,14 +361,6 @@ function Wallet({ trip }) {
 
 const CATEGORY_LABELS = { food:'Comida', transport:'Transporte', hotel:'Hotel', activity:'Actividad', other:'Otro' }
 const CATEGORY_ICONS = { food:'🍽', transport:'🚗', hotel:'🏨', activity:'⭐', other:'📌' }
-const ORIGIN_FILTERS = [
-  { key:'all', label:'Todos' },
-  { key:'panorama', label:'Panorama' },
-  { key:'hotel', label:'Hotel' },
-  { key:'food', label:'Comida' },
-  { key:'transport', label:'Transporte' },
-  { key:'other', label:'Otro' }
-]
 
 function Expenses({ trip }) {
   const { user } = useAuth()
@@ -384,7 +376,6 @@ function Expenses({ trip }) {
   const [splitOpen, setSplitOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [editSplitOpen, setEditSplitOpen] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(null)
   const grouped = useMemo(() => {
     const totals = {}
     for (const expense of trip.expenses) if (!expense.isSettlement) totals[expense.currency] = (totals[expense.currency] || 0) + expense.amount
@@ -416,6 +407,19 @@ function Expenses({ trip }) {
     if (expense.hotelId) return 'hotel'
     return expense.category || 'other'
   }
+  // Desglose de gasto por TIPO y moneda (los pagos de saldo no cuentan como gasto).
+  const byType = useMemo(() => {
+    const totals = {}
+    for (const expense of trip.expenses) {
+      if (expense.isSettlement) continue
+      const type = expense.activityId ? 'activity' : expense.hotelId ? 'hotel' : (expense.category || 'other')
+      totals[type] = totals[type] || {}
+      totals[type][expense.currency] = (totals[type][expense.currency] || 0) + expense.amount
+    }
+    return totals
+  }, [trip.expenses])
+  // La clave de filtro para un tipo ('activity' se filtra como 'panorama').
+  const filterKeyForType = type => (type === 'activity' ? 'panorama' : type)
   const matchesOrigin = expense => {
     if (originFilter === 'all') return true
     if (originFilter === 'panorama') return !!expense.activityId
@@ -492,28 +496,52 @@ function Expenses({ trip }) {
         </div>}
       </form>
       <div className="expense-filters">
-        <div className="payer-filters"><button className={payerFilter === 'all' ? 'active' : ''} onClick={() => setPayerFilter('all')}>Todos</button>{members.map(member => <button className={payerFilter === member.userId ? 'active' : ''} key={member.id} onClick={() => setPayerFilter(member.userId)}>{member.name || member.email}</button>)}</div>
-        <div className="payer-filters">{ORIGIN_FILTERS.map(f => <button className={originFilter === f.key ? 'active' : ''} key={f.key} onClick={() => setOriginFilter(f.key)}>{f.label}</button>)}</div>
+        {members.length > 1 && <div className="payer-filters"><button className={payerFilter === 'all' ? 'active' : ''} onClick={() => setPayerFilter('all')}>Todos</button>{members.map(member => <button className={payerFilter === member.userId ? 'active' : ''} key={member.id} onClick={() => setPayerFilter(member.userId)}>{member.name || member.email}</button>)}</div>}
       </div>
       {Object.keys(grouped).length > 0 && <div className="totals-row">
         {Object.entries(grouped).map(([currency, total]) => <div key={currency}><small>Total {currency}</small><b>{money(total, currency)}</b></div>)}
       </div>}
+      {Object.keys(byType).length > 0 && (
+        <div className="expense-breakdown">
+          {['activity', 'hotel', 'food', 'transport', 'other'].filter(type => byType[type]).map(type => {
+            const fk = filterKeyForType(type)
+            const active = originFilter === fk
+            const label = type === 'activity' ? 'Panoramas' : CATEGORY_LABELS[type]
+            const amounts = Object.entries(byType[type]).map(([currency, amount]) => money(amount, currency)).join(' · ')
+            return (
+              <button type="button" key={type} className={`breakdown-chip ${active ? 'active' : ''}`}
+                onClick={() => setOriginFilter(current => current === fk ? 'all' : fk)}
+                aria-pressed={active}>
+                <span className="bd-icon">{CATEGORY_ICONS[type]}</span>
+                <span className="bd-label">{label}</span>
+                <b>{amounts}</b>
+              </button>
+            )
+          })}
+          {originFilter !== 'all' && <button type="button" className="breakdown-clear" onClick={() => setOriginFilter('all')}>Ver todos ✕</button>}
+        </div>
+      )}
       {filtered.map(expense => {
         const cat = categoryOf(expense)
         const linkedName = expense.activityId ? activityName(expense.activityId) : null
         return (
-          <button className="expense-card" key={expense.id} onClick={() => startEdit(expense)}>
-            <span className={`expense-icon ${cat}`}>{cat === 'settle' ? '🤝' : (CATEGORY_ICONS[cat] || '📌')}</span>
-            <div className="expense-info">
-              <h4>{expense.description}</h4>
-              <small>{[formatDate(expense.date), nameOf(expense.paidBy), splitSummary(expense)].filter(Boolean).join(' · ')}</small>
-              {linkedName && <small className="expense-link">↳ {linkedName}</small>}
-            </div>
-            <div className="expense-amount">
-              <b>{money(expense.amount, expense.currency)}</b>
-              <small>{CATEGORY_LABELS[cat] || (cat === 'settle' ? 'Pago' : 'Otro')}</small>
-            </div>
-          </button>
+          <div className="expense-card" key={expense.id}>
+            <button type="button" className="expense-card-main" onClick={() => startEdit(expense)}>
+              <span className={`expense-icon ${cat}`}>{cat === 'settle' ? '🤝' : (CATEGORY_ICONS[cat] || '📌')}</span>
+              <div className="expense-info">
+                <h4>{expense.description}</h4>
+                <small>{[formatDate(expense.date), nameOf(expense.paidBy), splitSummary(expense)].filter(Boolean).join(' · ')}</small>
+                {linkedName && <small className="expense-link">↳ {linkedName}</small>}
+              </div>
+              <div className="expense-amount">
+                <b>{money(expense.amount, expense.currency)}</b>
+                <small>{CATEGORY_LABELS[cat] || (cat === 'settle' ? 'Pago' : 'Otro')}</small>
+              </div>
+            </button>
+            <button type="button" className="expense-delete" onClick={() => deleteExpense(expense.id)} aria-label={`Eliminar gasto ${expense.description}`}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M18 7l-1 13H7L6 7M10 11v5M14 11v5" /></svg>
+            </button>
+          </div>
         )
       })}
       {!filtered.length && trip.expenses.length > 0 && <p className="expense-empty">Sin gastos en este filtro</p>}
@@ -568,20 +596,8 @@ function Expenses({ trip }) {
               </button>
             )}
             <div className="edit-actions">
-              <button type="button" className="delete-expense-btn" onClick={() => setConfirmDelete(editing.id)}>Eliminar gasto</button>
+              <button type="button" className="delete-expense-btn" onClick={() => { deleteExpense(editing.id); setEditing(null) }}>Eliminar gasto</button>
               <button className="primary-btn compact" onClick={saveEdit} disabled={!editing.description || !Number(editing.amount)}>Guardar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {confirmDelete && (
-        <div className="split-editor" onClick={() => setConfirmDelete(null)} style={{ zIndex:850 }}>
-          <div className="split-sheet confirm-delete" onClick={event => event.stopPropagation()}>
-            <p>¿Eliminar este gasto? Esta acción no se puede deshacer.</p>
-            <div className="modal-actions">
-              <button type="button" className="ghost-btn" onClick={() => setConfirmDelete(null)}>Cancelar</button>
-              <button className="danger-btn" onClick={() => { deleteExpense(confirmDelete); setConfirmDelete(null); setEditing(null) }}>Eliminar</button>
             </div>
           </div>
         </div>
